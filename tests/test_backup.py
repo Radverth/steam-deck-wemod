@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -236,7 +237,19 @@ def test_restore_refuses_hostile_members(cd, tmp_path):
             info.size = 4
             t.addfile(info, io.BytesIO(b"evil"))
     archive.with_name("20260101-000000-manual.json").write_text(
-        json.dumps({"entries": [{"path": n, "type": "file"} for n in names]})
+        json.dumps(
+            {
+                "entries": [
+                    {
+                        "path": n,
+                        "type": "file",
+                        "size": 4,
+                        "sha256": hashlib.sha256(b"evil").hexdigest(),
+                    }
+                    for n in names
+                ]
+            }
+        )
     )
     counts = backup.restore(archive, cd, mode="full")
     assert counts["refused"] == 4
@@ -297,3 +310,39 @@ def test_restoring_the_oldest_backup_is_not_pruned_by_pre_restore(cd):
     oldest = made[0]
     backup.create(cd, "1", "pre-restore", keep=2, now=t0 + 5, protect=(oldest.archive,))
     assert oldest.archive.exists()
+
+
+@pytest.mark.parametrize("rel", ["pfx/user.reg", f"{U}/Saved Games/Game/slot1.sav"])
+def test_restore_temp_symlink_cannot_overwrite_external_file(cd, tmp_path, rel):
+    b = backup.create(cd, "1", "manual")
+    target = cd / rel
+    target.write_bytes(b"changed")
+    external = tmp_path / "outside-save"
+    external.write_bytes(b"must survive")
+    target.with_name(target.name + ".wemod-deck-restore").symlink_to(external)
+    backup.restore(b.archive, cd, mode="full")
+    assert external.read_bytes() == b"must survive"
+    assert not target.is_symlink()
+
+
+@pytest.mark.parametrize("damage", ["registry", "missing"])
+def test_restore_verifies_all_entries_before_writing(cd, damage, monkeypatch):
+    monkeypatch.setattr(backup, "compression", lambda: "gzip")
+    b = backup.create(cd, "1", "manual")
+    members = []
+    with tarfile.open(b.archive, "r:*") as tar:
+        for m in tar:
+            data = tar.extractfile(m).read() if m.isfile() else None
+            if m.name == "pfx/user.reg":
+                if damage == "missing":
+                    continue
+                data = b"x" * m.size
+            members.append((m, data))
+    with tarfile.open(b.archive, "w:gz") as tar:
+        for m, data in members:
+            tar.addfile(m, io.BytesIO(data) if data is not None else None)
+    slot = cd / f"{U}/Saved Games/Game/slot1.sav"
+    slot.write_bytes(b"current progress")
+    with pytest.raises(BackupError):
+        backup.restore(b.archive, cd, mode="full")
+    assert slot.read_bytes() == b"current progress"

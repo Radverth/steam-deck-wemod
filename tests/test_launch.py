@@ -114,7 +114,10 @@ def test_prefix_gets_installed(ready, http_server, monkeypatch, tmp_path):
         }
     ]
     monkeypatch.setenv("WEMOD_DECK_URL_PREFIX_RELEASES", http_server.add("/rel", rel))
-    assert decide(ready).state == "ok"
+    for i in range(6):
+        backup.create(cd, ready.game().appid, "manual", keep=8, now=i)
+    assert decide(ready, cfg=Config(backups_keep=8)).state == "ok"
+    assert len(backup.list_backups(ready.game().appid)) == 7
     assert (cd / "pfx/.wemod_installer").exists()
 
 
@@ -205,3 +208,20 @@ def test_no_space_for_backup_leaves_prefix_alone(
     assert d.command == ready.proton_argv(ready.game())
     assert not (cd / "pfx/.wemod_installer").exists()
     assert not (cd / "pfx/system.reg").exists()  # nothing unpacked
+
+
+def test_incomplete_pending_restore_keeps_marker(ready, tmp_path):
+    game = ready.game()
+    documents = game.compatdata / backup.STEAMUSER / "Documents"
+    documents.mkdir(parents=True)
+    save = documents / "save.dat"
+    save.write_bytes(b"progress")
+    snap = backup.create(game.compatdata, game.appid, "reset")
+    backup.set_pending(game.appid, snap.archive, game.compatdata)
+    save.unlink()
+    documents.rmdir()
+    documents.symlink_to(tmp_path, target_is_directory=True)
+    result = decide(ready)
+    assert result.state == "error"
+    assert backup.pending(game.appid) is not None
+    assert not (tmp_path / "save.dat").exists()

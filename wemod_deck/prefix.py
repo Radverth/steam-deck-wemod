@@ -345,6 +345,10 @@ def reset_prefix(
     """
     if not appid.isdigit():
         raise PrefixError("AppID must be a number")
+    if backup.pending(appid):
+        raise PrefixError(
+            "save restore is pending; restore your saves before resetting again"
+        )
     found = steam.find_compatdata(steam_root, appid)
     if not found:
         raise PrefixError(f"no prefix found for AppID {appid}")

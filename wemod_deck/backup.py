@@ -21,6 +21,7 @@ import os
 import shutil
 import subprocess
 import tarfile
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -388,6 +389,7 @@ def restore(
     if mode not in ("missing", "full"):
         raise ValueError(mode)
     manifest = read_manifest(archive)
+    verify(archive, manifest)
     sums = {e["path"]: e.get("sha256") for e in manifest["entries"]}
     root = compatdata.resolve()
     counts = {"restored": 0, "unchanged": 0, "kept": 0, "refused": 0}
@@ -448,15 +450,28 @@ def restore(
 
 def _write_member(tar, m, target: Path, sha: str | None) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
-    part = target.with_name(target.name + ".wemod-deck-restore")
-    with tar.extractfile(m) as src, open(part, "wb") as out:
-        reader = _HashingReader(src)
-        shutil.copyfileobj(reader, out)
-    if sha and reader.sha.hexdigest() != sha:
-        part.unlink()
-        raise BackupError(f"{m.name} is damaged in the backup; not restored")
-    os.utime(part, (m.mtime, m.mtime))
-    os.replace(part, target)
+    with _restore_temp(target) as (part, out):
+        with tar.extractfile(m) as src:
+            reader = _HashingReader(src)
+            shutil.copyfileobj(reader, out)
+        out.close()
+        if sha and reader.sha.hexdigest() != sha:
+            raise BackupError(f"{m.name} is damaged in the backup; not restored")
+        os.utime(part, (m.mtime, m.mtime))
+        os.replace(part, target)
+
+
+@contextlib.contextmanager
+def _restore_temp(target: Path):
+    # Exclusive creation: an existing link or save must never be opened as scratch.
+    with tempfile.NamedTemporaryFile(
+        dir=target.parent, prefix=".wemod-deck-restore-", delete=False
+    ) as out:
+        part = Path(out.name)
+        try:
+            yield part, out
+        finally:
+            part.unlink(missing_ok=True)
 
 
 def _restore_registry(tar, m, target: Path, mode: str, dry_run: bool, merge) -> bool:
@@ -468,9 +483,10 @@ def _restore_registry(tar, m, target: Path, mode: str, dry_run: bool, merge) -> 
     if merged == current:
         return False
     if not dry_run:
-        part = target.with_name(target.name + ".wemod-deck-restore")
-        part.write_text(merged, "utf-8", "surrogateescape")
-        os.replace(part, target)
+        with _restore_temp(target) as (part, out):
+            out.write(merged.encode("utf-8", "surrogateescape"))
+            out.close()
+            os.replace(part, target)
     return True
 
 
@@ -655,6 +671,13 @@ def cli(args, cfg) -> int:
         counts = restore(target.archive, cd, mode="full", dry_run=args.dry_run)
     except BackupError as e:
         log.error("%s", e)
+        return 1
+    if counts["refused"] or counts["kept"]:
+        log.error(
+            "restore incomplete: %d refused, %d conflicting entries",
+            counts["refused"],
+            counts["kept"],
+        )
         return 1
     verb = "Would restore" if args.dry_run else "Restored"
     print(

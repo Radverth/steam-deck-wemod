@@ -294,3 +294,14 @@ def test_unpack_normalises_names_before_checks(fake_steam, tmp_path, sneaky):
         build_fake_prefix_zip(tmp_path / "p.zip", extra={sneaky: b"EVIL"}), cd
     )
     assert save.read_bytes() == before
+
+
+def test_reset_refuses_to_replace_pending_restore(fake_steam):
+    game = fake_steam.game()
+    game.compatdata.mkdir(parents=True, exist_ok=True)
+    original = backup.create(game.compatdata, game.appid, "reset")
+    backup.set_pending(game.appid, original.archive, game.compatdata)
+    with pytest.raises(prefix.PrefixError, match="pending"):
+        prefix.reset_prefix(fake_steam.steam_root, game.appid)
+    assert game.compatdata.exists()
+    assert backup.pending(game.appid)["archive"] == str(original.archive)

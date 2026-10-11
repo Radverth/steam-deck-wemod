@@ -83,7 +83,9 @@ def decide(
         if not app.is_installed(cfg.app):
             log.info("%s is not installed yet, downloading it", cfg.app)
             app.install(cfg.app)
-        prefix.ensure(compatdata, cmd.proton, appid or compatdata.name)
+        prefix.ensure(
+            compatdata, cmd.proton, appid or compatdata.name, keep=cfg.backups_keep
+        )
     except backup.BackupError as e:
         return _plain(cmd, "error", f"no save backup possible, prefix left alone: {e}")
     except (app.AppError, prefix.PrefixError, net.DownloadError, OSError) as e:
@@ -155,6 +157,13 @@ def _restore_pending(cmd, appid, compatdata: Path, pend: dict, env) -> str | Dec
     except backup.BackupError as e:
         return _plain(
             cmd, "error", f"saves not restored yet ({e}); retried next launch"
+        )
+    if counts["refused"] or counts["kept"]:
+        return _plain(
+            cmd,
+            "error",
+            "saves not fully restored: conflicting or unsafe paths; "
+            "pending backup retained for the next launch",
         )
     backup.clear_pending(appid)
     return f"saves restored from {archive.name} ({counts['restored']} entries)"

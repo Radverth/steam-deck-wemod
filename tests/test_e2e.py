@@ -387,3 +387,19 @@ def test_backups_cli_errors(fake_steam, tool):
     assert cli(s, "backups", "list").stdout.strip() == "No backups yet."
     assert cli(s, "backups", "create", "999").returncode == 1
     assert cli(s, "backups", "create", "../x").returncode == 1
+
+
+def test_backups_restore_cli_reports_conflicting_save(fake_steam, tool, tmp_path):
+    s, game = fake_steam, fake_steam.game()
+    (game.compatdata / "pfx/drive_c").mkdir(parents=True)
+    saves = played_prefix(game)
+    slot = next(p for p in saves if p.name == "slot1.sav")
+    assert cli(s, "backups", "create", game.appid).returncode == 0
+    slot.unlink()
+    external = tmp_path / "outside-save"
+    external.write_bytes(b"untouched")
+    slot.symlink_to(external)
+    result = cli(s, "backups", "restore", game.appid)
+    assert result.returncode == 1
+    assert "restore incomplete" in result.stderr
+    assert external.read_bytes() == b"untouched"

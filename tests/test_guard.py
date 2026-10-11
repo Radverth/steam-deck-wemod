@@ -43,9 +43,9 @@ REVIEWED = {
     ("backup.py", "_write_member", "os.replace"): "restore: writes the backed-up file",
     (
         "backup.py",
-        "_write_member",
+        "_restore_temp",
         "part.unlink",
-    ): "restore: damaged member's temp file",
+    ): "restore: exclusively created scratch file",
     ("backup.py", "_restore_registry", "os.replace"): "restore: merged user.reg",
     ("prefix.py", "unpack", "os.replace"): "runs inside backup.protected (ensure)",
     ("prefix.py", "reset_prefix", "cd.rename"): "after backup.create + pending restore",
