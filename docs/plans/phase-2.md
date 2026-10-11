@@ -189,3 +189,14 @@ Implemented as planned. Details settled while building:
 - Python 3.9's `tarfile` needs string paths in stream mode (found by the
   3.9 test run).
 - ADR 0006 records the design.
+
+## Handoff verification (Codex, 2026-10-11)
+- Resumed at the final review: all six implementation commits already existed.
+- Independent branch review found five issues, reproduced by regression tests:
+  predictable restore temporary files could follow symlinks; restores did not
+  validate the whole archive; incomplete restores cleared pending markers;
+  repeated reset replaced pending backups; unpack ignored configured retention.
+- Fixed all five, with failing-then-passing regression tests. Manual restore also
+  returns failure for conflicting or refused paths instead of claiming success.
+- The execution skill's workspace helper was unavailable; this section records
+  handoff progress instead. No implementation plan changes were needed.

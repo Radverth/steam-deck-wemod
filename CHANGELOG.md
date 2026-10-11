@@ -6,6 +6,7 @@ is DeckCheatz/wemod-launcher.
 ## [Unreleased]
 
 ### Phase 2: save protection
+- Restore re-verifies every archive before writing, uses exclusive temporary files, and reports conflicting paths as incomplete. Pending backups remain protected until restoration succeeds; another reset is refused while one is pending.
 - Save backups (`drive_c/users/steamuser`, `ProgramData`, `user.reg`) as verified `.tar.zst` (or `.tar.gz`) with a SHA-256 manifest; the newest 5 per game are kept (`backups_keep`).
 - Every destructive prefix operation goes through one gate: verified backup first (no backup, no change), and anything missing afterwards is put back. A test flags unreviewed delete/move calls.
 - The one-time prebuilt-prefix install now runs only after a verified backup; if none can be made, the game starts without Wand.

@@ -83,6 +83,11 @@ without Wand. Backed up: `drive_c/users/steamuser`, `drive_c/ProgramData`
 and the game's registry keys (`user.reg`). The newest 5 per game are kept.
 Saves in a game's own install folder or in Steam Cloud aren't part of this.
 
+Restores verify the archive again before writing. Conflicting paths are reported
+as incomplete; a pending restore stays protected, and another reset is refused
+until it finishes. If Proton cannot rebuild the prefix before launch, the game
+starts plain and restoration is retried on the next launch.
+
 ## Settings
 
 `~/.config/wemod-deck/config.toml` (optional):
