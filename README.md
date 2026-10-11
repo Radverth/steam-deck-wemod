@@ -1,15 +1,16 @@
 # wemod-deck
 
 Run **Wand** (formerly WeMod) with your Steam games on the **Steam Deck**,
-straight from Game Mode, with no popups.
+straight from Game Mode, with no launcher setup dialogs.
 
 A Steam Deck-first fork of
 [DeckCheatz/wemod-launcher](https://github.com/DeckCheatz/wemod-launcher)
 (1.x line, AGPL-3.0). See [Credits](#credits).
 
-> **Work in progress.** Phases 1–2 of the [plan](docs/plans/) (compat tool,
-> headless launch, save backups). It passes simulated tests; it has not
-> yet been checked on a real Deck.
+> **Work in progress.** Phases 1–2 are implemented: compatibility tool,
+> headless launch, and verified save backups. Automated tests use simulated
+> Steam installs; real Steam Deck/Wine behavior has not yet been verified.
+> See the [plans](docs/plans/) and [Deck test checklist](#first-steam-deck-test).
 
 ## Disclaimer
 
@@ -19,6 +20,9 @@ unlock anything in it. **Single-player games only**: don't use it with
 online or multiplayer games or with anti-cheat.
 
 ## Quick start (Steam Deck)
+
+For native Steam on SteamOS, with Python 3.9 or newer. The launcher uses
+Python’s standard library; no pip, virtual environment, or Tk is needed.
 
 1. Switch to **Desktop Mode** and open **Konsole**.
 2. Install:
@@ -31,7 +35,6 @@ online or multiplayer games or with anti-cheat.
    and adds a **"WeMod + GE-Proton"** compatibility tool. No sudo.
 3. Restart Steam (or reboot) and go back to Game Mode.
 4. For a game: **Properties ▸ Compatibility ▸ Force…** ▸ **WeMod + GE-Proton**.
-   To use it for every game: **Steam ▸ Settings ▸ Compatibility** ▸ default tool.
 5. Launch the game. The **first** launch of a brand-new game runs without
    Wand while Proton builds its prefix. From the next launch on, Wand
    starts with the game. The first time, a prebuilt prefix (~0.9 GB) is
@@ -80,13 +83,55 @@ install, or `reset-prefix`), it backs up the saves to
 `~/.local/share/wemod-deck/backups/<AppID>/` and checks the backup. No
 backup (for example, not enough space) means no change: the game just starts
 without Wand. Backed up: `drive_c/users/steamuser`, `drive_c/ProgramData`
-and the game's registry keys (`user.reg`). The newest 5 per game are kept.
-Saves in a game's own install folder or in Steam Cloud aren't part of this.
+and the game's registry keys (`user.reg`). The newest 5 per game are kept
+by default; backups needed for a pending restore are protected from pruning. Archives use `.tar.zst` when zstd is
+available, otherwise `.tar.gz`, with a SHA-256 manifest.
+
+This is a save backup, not a complete prefix image. Temporary folders and
+shared Wand/WeMod login links are excluded. Symlinks are recorded without
+following them, so saves outside the prefix reached through a link are not
+copied. Saves in a game's own install folder or in Steam Cloud aren't part
+of this.
 
 Restores verify the archive again before writing. Conflicting paths are reported
 as incomplete; a pending restore stays protected, and another reset is refused
 until it finishes. If Proton cannot rebuild the prefix before launch, the game
 starts plain and restoration is retried on the next launch.
+
+### Manual backup and recovery
+
+Exit the game before backing up, resetting, or restoring. Reset and restore
+refuse when they detect the game is still running. Replace `1234560` with
+the game's AppID:
+
+```sh
+~/wemod-deck/wemod-deck backups create 1234560
+~/wemod-deck/wemod-deck backups list 1234560
+~/wemod-deck/wemod-deck backups restore 1234560 BACKUP_NAME --dry-run
+~/wemod-deck/wemod-deck backups restore 1234560 BACKUP_NAME
+```
+
+Use a name from `backups list` (or an unambiguous prefix of it). Omitting
+the name selects the newest backup. A dry run previews changes without
+writing. A real restore replaces matching save files and merges registry
+values from the backup; it does not delete extra files. It first creates a
+`pre-restore` backup, which you can select by name to undo overwritten data.
+
+### First Steam Deck test
+
+Use a single-player game with local saves, and keep a separate copy of
+those saves while real-device testing is outstanding.
+
+1. Launch the game, log in to Wand, and confirm both work. A brand-new
+   prefix needs a second launch before Wand starts.
+2. Exit the game, create a backup with the command above, and check it
+   appears in `backups list`.
+3. Run `~/wemod-deck/wemod-deck reset-prefix 1234560 --keep-old`, then
+   launch again. Confirm the saves return and Wand starts. `--keep-old`
+   preserves the old prefix under `~/.local/share/wemod-deck/old-prefixes/`.
+4. Run `~/wemod-deck/wemod-deck doctor` and
+   `~/wemod-deck/wemod-deck status 1234560`. Check for warnings and pending
+   restores, even if doctor ends with “All good.”
 
 ## Settings
 
@@ -95,7 +140,8 @@ starts plain and restoration is retried on the next launch.
 ```toml
 app = "wand"        # or "wemod" for the old WeMod 11.x client
 enabled = true      # use Wand for every game with the tool
-backups_keep = 5    # save backups kept per game
+backups_keep = 5    # save backups kept per game (1–100)
+log_level = "info"  # debug, info, warning, or error
 
 [apps."1234560"]    # a game's AppID (shown in its store URL)
 enabled = false     # this game runs plain GE-Proton
@@ -116,8 +162,10 @@ game, set its Launch Options to:
 
 - Update: run `bash install.sh` again. `--force-wemod` re-downloads Wand.
 - Uninstall: `bash install.sh --uninstall`. Your login and settings are
-  kept unless you confirm a second time; game prefixes and saves are
-  never touched. Games set to the tool need another compatibility tool
+  kept unless you confirm a second time. **That second confirmation also
+  deletes save backups, pending-restore records, and kept old prefixes**
+  in the data directory. Game prefixes in Steam’s libraries are not touched.
+  GE-Proton stays installed. Games set to the tool need another compatibility tool
   afterwards.
 
 `bash install.sh --help` lists all options.
@@ -130,8 +178,13 @@ download server.
 ```sh
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/pytest
-.venv/bin/ruff check . && shellcheck install.sh wemod compat/proton
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
+shellcheck install.sh wemod compat/proton tests/fakes/stubs/*
 ```
+
+Install ShellCheck separately for the shell checks. GitHub Actions runs
+lint and the tests on Python 3.9, 3.11, and 3.13.
 
 Design notes: [`docs/`](docs/) (plans, decisions, upstream architecture).
 Changes: [`CHANGELOG.md`](CHANGELOG.md).
