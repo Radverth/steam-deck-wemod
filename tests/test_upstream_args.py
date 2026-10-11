@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
+
 from fakes.steam_root import LAUNCHER_GAME_APPID
 
 REPO = Path(__file__).resolve().parent.parent
