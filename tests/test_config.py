@@ -128,3 +128,39 @@ def test_backups_keep(text, keep, warned):
     cfg, warnings = config.load(write(text))
     assert cfg.backups_keep == keep
     assert bool(warnings) is warned
+
+
+def test_set_app_creates_file():
+    config.set_app(paths.config_file(), "wemod")
+    cfg, warnings = config.load(paths.config_file())
+    assert cfg.app == "wemod" and warnings == []
+
+
+def test_set_app_keeps_everything_else():
+    text = (
+        '# mine\napp = "wand"  # comment\nbackups_keep = 3\n'
+        '\n[apps."7"]\nenabled = false\n'
+    )
+    write(text)
+    config.set_app(paths.config_file(), "wemod")
+    cfg, warnings = config.load(paths.config_file())
+    assert (cfg.app, cfg.backups_keep, cfg.enabled_for("7")) == ("wemod", 3, False)
+    assert warnings == []
+    assert paths.config_file().read_text().count("app =") == 1
+    assert "# mine" in paths.config_file().read_text()
+
+
+def test_set_app_adds_key_above_tables():
+    write('[apps."7"]\nenabled = false\n')
+    config.set_app(paths.config_file(), "wemod")
+    cfg, _ = config.load(paths.config_file())
+    assert cfg.app == "wemod" and cfg.enabled_for("7") is False
+
+
+def test_set_app_refuses_broken_file():
+    write("this is [not toml")
+    with pytest.raises(ConfigError):
+        config.set_app(paths.config_file(), "wemod")
+    assert paths.config_file().read_text() == "this is [not toml"
+    with pytest.raises(ConfigError):
+        config.set_app(paths.config_file(), "steam")

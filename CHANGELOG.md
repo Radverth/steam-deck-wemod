@@ -5,6 +5,10 @@ is DeckCheatz/wemod-launcher.
 
 ## [Unreleased]
 
+### Wand 12.61+ mod loading under Proton
+- New `wemod-deck use wemod|wand`: switches the app safely (keeps the rest of `config.toml`, refuses to rewrite a broken one) and downloads it.
+- README: "Mods don't load: Client integrity check failed". Wand 12.61+ refuses to inject mods under Proton because its own signature check fails under Wine; the documented workaround is WeMod 11.x. Nothing patches Wand's checks.
+
 ### Phase 2: save protection
 - Restore re-verifies every archive before writing, uses exclusive temporary files, and reports conflicting paths as incomplete. Pending backups remain protected until restoration succeeds; another reset is refused while one is pending.
 - Save backups (`drive_c/users/steamuser`, `ProgramData`, `user.reg`) as verified `.tar.zst` (or `.tar.gz`) with a SHA-256 manifest; the newest 5 per game are kept (`backups_keep`).

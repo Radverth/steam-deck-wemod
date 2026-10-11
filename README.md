@@ -71,6 +71,7 @@ Run from Konsole as `~/wemod-deck/wemod-deck <command>`:
 | `doctor` | Checks the install and prints what's wrong |
 | `status [AppID]` | Result of the last launch (or of one game) |
 | `setup [--force]` | Download or update Wand |
+| `use wemod` / `use wand` | Switch to WeMod 11.x or Wand 12.x and download it (see [Mods don't load](#mods-dont-load-client-integrity-check-failed)) |
 | `reset-prefix <AppID> [--keep-old]` | Backs up the game's saves, then deletes its prefix (or moves it aside with `--keep-old`). The next launch rebuilds it and puts the saves back before the game starts. |
 | `backups list [AppID]` | Save backups, newest first |
 | `backups create <AppID>` | Back up a game's saves now |
@@ -132,6 +133,30 @@ those saves while real-device testing is outstanding.
 4. Run `~/wemod-deck/wemod-deck doctor` and
    `~/wemod-deck/wemod-deck status 1234560`. Check for warnings and pending
    restores, even if doctor ends with “All good.”
+
+## Mods don't load: "Client integrity check failed"
+
+Wand opens and finds the game, but loading mods fails with *"We're having
+trouble loading the mods into your game"*, and Wand's log
+(**Settings ▸ Save Log**) shows `InjectDll: Client integrity check failed`.
+
+Since 12.61, Wand runs integrity checks (including its own code
+signature) before it injects mods. Under Proton/Wine these checks most
+likely fail even for the untouched official Wand that wemod-deck installs
+(checksum-verified, unmodified), probably because Wine's signature
+verification doesn't trust Wand's certificate chain. wemod-deck will not
+patch around Wand's checks (see the Disclaimer).
+
+What you can do: use the older **WeMod 11.x** client, which predates
+those checks, from WeMod's own servers:
+
+```sh
+~/wemod-deck/wemod-deck use wemod
+```
+
+Log in again in WeMod (its login is separate from Wand's). To go back:
+`~/wemod-deck/wemod-deck use wand`. WeMod 11.x is being retired, so this may
+stop working at some point.
 
 ## Settings
 

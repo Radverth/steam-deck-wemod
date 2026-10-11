@@ -44,6 +44,12 @@ def build_parser() -> argparse.ArgumentParser:
     setup = sub.add_parser("setup", help="download or update the app")
     setup.add_argument("--force", action="store_true", help="re-download")
 
+    use = sub.add_parser(
+        "use",
+        help="switch between Wand (12.x) and WeMod (11.x) and download it",
+    )
+    use.add_argument("app", choices=config.APPS)
+
     bk = sub.add_parser("backups", help="list, create or restore save backups")
     bsub = bk.add_subparsers(dest="backups_command", required=True)
     bl = bsub.add_parser("list", help="list backups (newest first)")
@@ -65,6 +71,25 @@ def build_parser() -> argparse.ArgumentParser:
     st = sub.add_parser("status", help="show the last launch result")
     st.add_argument("appid", nargs="?")
     return p
+
+
+def _use(app_name: str) -> int:
+    from . import app
+
+    try:
+        config.set_app(paths.config_file(), app_name)
+    except config.ConfigError as e:
+        status.log.error("%s; fix config.toml first", e)
+        return 1
+    cfg, _ = config.load(paths.config_file())
+    print(f"Now using {app_name} (saved in {paths.config_file()}).")
+    code = app.setup_cli(cfg)
+    if code == 0:
+        print(
+            f"Games launched with the compatibility tool now start {app_name}. "
+            "Its login is separate: log in once more."
+        )
+    return code
 
 
 def split_launch_args(argv: list[str]) -> tuple[bool, list[str]]:
@@ -111,6 +136,8 @@ def main(argv: list[str] | None = None) -> int:
         from . import app
 
         return app.setup_cli(cfg, force=args.force)
+    if args.command == "use":
+        return _use(args.app)
     if args.command == "backups":
         from . import backup
 
