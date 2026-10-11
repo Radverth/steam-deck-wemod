@@ -7,9 +7,9 @@ A Steam Deck-first fork of
 [DeckCheatz/wemod-launcher](https://github.com/DeckCheatz/wemod-launcher)
 (1.x line, AGPL-3.0). See [Credits](#credits).
 
-> **Work in progress.** Phase 1 of the [plan](docs/plans/) (compat tool,
-> headless launch). It passes simulated tests; it has not yet been
-> checked on a real Deck.
+> **Work in progress.** Phases 1–2 of the [plan](docs/plans/) (compat tool,
+> headless launch, save backups). It passes simulated tests; it has not
+> yet been checked on a real Deck.
 
 ## Disclaimer
 
@@ -68,7 +68,20 @@ Run from Konsole as `~/wemod-deck/wemod-deck <command>`:
 | `doctor` | Checks the install and prints what's wrong |
 | `status [AppID]` | Result of the last launch (or of one game) |
 | `setup [--force]` | Download or update Wand |
-| `reset-prefix <AppID>` | Moves a game's prefix aside (`steamapps/compatdata-wemod-deck-old/`) so Steam builds a fresh one. Nothing is deleted. |
+| `reset-prefix <AppID> [--keep-old]` | Backs up the game's saves, then deletes its prefix (or moves it aside with `--keep-old`). The next launch rebuilds it and puts the saves back before the game starts. |
+| `backups list [AppID]` | Save backups, newest first |
+| `backups create <AppID>` | Back up a game's saves now |
+| `backups restore <AppID> [name] [--dry-run]` | Put a backup back. Your current state is backed up first, so you can undo it. |
+
+## Your saves
+
+Before wemod-deck changes a game's prefix (the one-time prebuilt-prefix
+install, or `reset-prefix`), it backs up the saves to
+`~/.local/share/wemod-deck/backups/<AppID>/` and checks the backup. No
+backup (for example, not enough space) means no change: the game just starts
+without Wand. Backed up: `drive_c/users/steamuser`, `drive_c/ProgramData`
+and the game's registry keys (`user.reg`). The newest 5 per game are kept.
+Saves in a game's own install folder or in Steam Cloud aren't part of this.
 
 ## Settings
 
@@ -77,6 +90,7 @@ Run from Konsole as `~/wemod-deck/wemod-deck <command>`:
 ```toml
 app = "wand"        # or "wemod" for the old WeMod 11.x client
 enabled = true      # use Wand for every game with the tool
+backups_keep = 5    # save backups kept per game
 
 [apps."1234560"]    # a game's AppID (shown in its store URL)
 enabled = false     # this game runs plain GE-Proton

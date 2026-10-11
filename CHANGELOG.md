@@ -5,6 +5,14 @@ is DeckCheatz/wemod-launcher.
 
 ## [Unreleased]
 
+### Phase 2: save protection
+- Save backups (`drive_c/users/steamuser`, `ProgramData`, `user.reg`) as verified `.tar.zst` (or `.tar.gz`) with a SHA-256 manifest; the newest 5 per game are kept (`backups_keep`).
+- Every destructive prefix operation goes through one gate: verified backup first (no backup, no change), and anything missing afterwards is put back. A test flags unreviewed delete/move calls.
+- The one-time prebuilt-prefix install now runs only after a verified backup; if none can be made, the game starts without Wand.
+- `reset-prefix` backs up, then deletes the prefix (`--keep-old` moves it aside). It refuses while the game is running.
+- After a reset, the next launch rebuilds the prefix and restores the saves **before** the game starts.
+- New `backups list|create|restore` commands; restore is undoable and has `--dry-run`. `doctor` shows backups and pending restores.
+
 ### Phase 1: compat tool first, headless launch
 - New `wemod_deck` launcher (Python 3.9+, stdlib only): no popups, no venv, pip or Tk at runtime.
 - **Wand (formerly WeMod) is the default app**; `app = "wemod"` keeps the 11.x client. Downloads come from WeMod's CDN via the Scoop manifest and are SHA-256 verified.

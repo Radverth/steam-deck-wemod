@@ -1,6 +1,6 @@
 # Phase 2: save protection
 
-Status: **draft, waiting for Tom's go**. Branch `agent/phase-2-backups`
+Status: **approved 2026-10-11 (Tom: "Go, as planned")**. Branch `agent/phase-2-backups`
 (stacked on Phase 1, PR #2).
 
 ## Goal
@@ -177,3 +177,15 @@ Changed: `prefix.py` (unpack and reset through the gate), `launch.py`
 - [ ] `wemod-deck reset-prefix <appid>`; launch the game from Game Mode. The save is there on that very launch, and Wand starts.
 - [ ] `wemod-deck doctor` shows the backup size and no pending restores.
 - [ ] Optional: note how big the backup of your largest game is (`backups list`).
+
+## As built (2026-10-11)
+Implemented as planned. Details settled while building:
+- The guard is an AST scan with a reviewed allowlist (`tests/test_guard.py`)
+  rather than a path-based check: every delete/move/replace call is listed
+  with why it is safe.
+- `reset-prefix` refuses when a game has prefixes in several libraries.
+- A backup being restored is protected from the `pre-restore` snapshot's
+  pruning.
+- Python 3.9's `tarfile` needs string paths in stream mode (found by the
+  3.9 test run).
+- ADR 0006 records the design.
