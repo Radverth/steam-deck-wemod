@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from fakes.http_server import FakeServer
 from fakes.steam_root import FakeSteam, build_fake_steam
 
 
@@ -26,3 +27,9 @@ def fake_steam(tmp_path) -> FakeSteam:
 def fake_steam_sd(tmp_path) -> FakeSteam:
     """Fake Steam with the runtime and games on the SD card library."""
     return build_fake_steam(tmp_path, runtime_on="sdcard", games_on="sdcard")
+
+
+@pytest.fixture
+def http_server():
+    with FakeServer() as server:
+        yield server
