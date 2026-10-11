@@ -7,3 +7,8 @@ wemod.conf
 wemod.log
 winetricks
 pip.pyz
+
+# wemod-deck dev
+.venv/
+.pytest_cache/
+.ruff_cache/
