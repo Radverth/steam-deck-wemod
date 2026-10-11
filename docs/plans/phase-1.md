@@ -1,33 +1,34 @@
 # Phase 1: compat tool first, headless launch
 
-Status: **draft, waiting for Tom's go**. Branch `agent/phase-1-headless`
-(stacked on Phase 0, PR #1).
+Status: **approved 2026-10-11 (Tom: "Go, but default to Wand")**. Branch
+`agent/phase-1-headless` (stacked on Phase 0, PR #1).
 
 ## Goal
 Choosing "WeMod + GE-Proton" in a game's Compatibility menu starts the game
-with WeMod and **no popups at any point**. Every decision has a default.
+with Wand/WeMod and **no popups at any point**. Every decision has a default.
 Anything that goes wrong is written to a log and a status file, and the
 game still starts (without WeMod) whenever possible.
 
-## Decisions for Tom (recommendation first)
-1. **WeMod or Wand.** WeMod has been renamed Wand (12.x, `Wand.exe`, Scoop
-   `wand.json`, still on WeMod's CDN). Upstream says WeMod 11.x is near end
-   of life (upstream PR #318). Plan: support both, chosen by `app = "wemod" |
-   "wand"` in the config, with the exe name read from the package.
-   **Default to `wemod`** (what your Deck runs today). Switching is one line.
-2. **Upstream `src/` modules are deleted in this phase**, not left as dead
-   code. They hold every popup and every destructive path. The pinned
-   argument-parsing behaviour moves to tests of the new legacy parser. The
-   git self-update goes with them, earlier than Phase 3 planned: re-running
-   `install.sh` becomes the way to update.
-3. **"Game closed too early" (launcher games) until Phase 4:** keep WeMod
-   open and let the player close it, or press Steam ▸ Exit Game. Today a popup
-   asks; headless there is no one to ask. The alternative is closing WeMod
-   straight away, which breaks launcher games (Ubisoft, 2K) completely.
-4. **Python 3.11+ on the Deck.** The launcher uses only the standard library
-   (no venv, pip, FreeSimpleGUI or Tk), and `tomllib` needs Python 3.11.
-   Please check `python3 --version` in Konsole. If it's older, I'll add a
-   tiny TOML subset parser.
+## Decisions (agreed)
+1. **Wand by default.** WeMod has been renamed Wand (12.x, Scoop `wand.json`,
+   still on WeMod's CDN `storage-cdn.wemod.com`). Upstream says WeMod 11.x is
+   near end of life (upstream PR #318). `app = "wand" | "wemod"` in the
+   config; **default `wand`**. Checked on the real 12.62.0 package (file
+   listing + `package.json` only): same `lib/net45/` layout, contains
+   `Wand.exe` (and a `WeMod.exe` stub), `productName` is `Wand`, so its
+   login should live in `AppData/Roaming/Wand`. Both `Roaming/Wand` and
+   `Roaming/WeMod` are linked to central folders, so Wand can find an old
+   WeMod login if it migrates one.
+2. **Upstream `src/` modules are deleted in this phase.** They hold every
+   popup and every destructive path. The pinned argument-parsing behaviour
+   moves to tests of the new legacy parser. Git self-update goes with them
+   (earlier than Phase 3 planned): re-running `install.sh` updates.
+3. **"Game closed too early" (launcher games) until Phase 4:** WeMod stays
+   open; the player closes it or uses Steam ▸ Exit Game.
+4. **Python:** stdlib only (no venv, pip, FreeSimpleGUI or Tk). `tomllib` is
+   used when present (3.11+); on older Pythons a small parser for the subset
+   our config uses takes over, so the launcher needs only Python 3.9 like the
+   reference installer.
 
 ## Design
 
@@ -87,8 +88,8 @@ Steps, all headless:
    overwriting is fine (Windows/.NET files). This is the stop-gap until the
    Phase 2 backups. GitHub releases list cached for 24 h; requests have a
    timeout.
-6. Shared login: `drive_c/users/steamuser/AppData/Roaming/<WeMod|Wand>` →
-   symlink to `~/.local/share/wemod-deck/login/<app>/`. If the prefix has a
+6. Shared login: `drive_c/users/steamuser/AppData/Roaming/{Wand,WeMod}` →
+   symlinks to `~/.local/share/wemod-deck/login/{wand,wemod}/`. If the prefix has a
    real directory with data and the central one has data too, **central
    wins** and the prefix copy is **moved** to
    `~/.local/share/wemod-deck/displaced-login/<appid>-<ts>/`, never deleted.
@@ -116,7 +117,7 @@ follows decision 3. Phase 4 replaces this file.
 
 ### Config (`~/.config/wemod-deck/config.toml`)
 ```toml
-app = "wemod"            # or "wand"
+app = "wand"             # or "wemod"
 enabled = true           # global default
 log_level = "info"
 
@@ -153,7 +154,7 @@ name read from the tarball, `curl -r 0-0` probe, `~/.cache` downloads,
 `.sha512sum` check, SIGPIPE-safe `tar | head`). Changes:
 - installs **this** repo (git clone of `Radverth/steam-deck-wemod` at `main`,
   or `--zip`); no venv, pip, FreeSimpleGUI, tkinter or winetricks;
-- checks `python3 >= 3.11` (see decision 4);
+- checks `python3 >= 3.9` (see decision 4);
 - pre-downloads the app via `python3 -m wemod_deck setup`;
 - generates the compat tool from `compat/`; drops the Flatpak paths;
 - `--uninstall` removes the install dir and the tool, and keeps
@@ -210,13 +211,11 @@ scenario:
   covers `wemod_deck/`.
 
 ## Risks
-- **Wand's login folder name** (`AppData/Roaming/Wand`?) is unverified. It's a config
-  value; you check it on the Deck if you choose Wand.
+- **Wand's login folder** is `Roaming/Wand` by its `productName`; Tom confirms the login is kept between games on the Deck.
 - **Prefix download size:** the prebuilt prefix is ~0.9 GB on the first WeMod launch of each
   game. That's unchanged from today; Phase 6 addresses storage.
 - **Exec'ing the final command** means no post-game step; that's intended (no
   troubleshooter). Early-close handling is in the `.bat` (decision 3).
-- **Python and tomllib:** if SteamOS Python is older than 3.11, see decision 4.
 - **Tom's existing setup:** existing `~/wemod-launcher` installs and Launch Options lines
   keep working through the `wemod` shim. Old prefixes have
   `.wemod_installer`, so they are reused without a new download.
