@@ -24,19 +24,25 @@ jobs:
           ruff check .
           ruff format --check .
       - name: shellcheck
-        run: shellcheck tests/fakes/stubs/*
+        run: shellcheck install.sh wemod compat/proton tests/fakes/stubs/*
 
   test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # 3.11 is what recent SteamOS 3.x ships; 3.13 is current.
-        python-version: ["3.11", "3.13"]
+        # wemod_deck runs on the SteamOS system Python: support 3.9 and up.
+        python-version: ["3.9", "3.11", "3.13"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
-      - run: pip install -r requirements-dev.txt
+      - name: Install test tools
+        run: |
+          if [ "${{ matrix.python-version }}" = "3.9" ]; then
+            pip install "pytest<9"  # pytest 9 needs Python 3.10+
+          else
+            pip install -r requirements-dev.txt
+          fi
       - run: pytest -v

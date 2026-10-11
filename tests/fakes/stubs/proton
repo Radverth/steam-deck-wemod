@@ -2,13 +2,15 @@
 # Fake GE-Proton. Logs argv plus the Steam env vars that matter as one JSON
 # line to $FAKE_STEAM_LOG. For launch verbs it creates the prefix
 # (pfx/drive_c and the "version" file) like real Proton does. It never runs
-# the game. Exit code comes from $FAKE_PROTON_EXIT (default 0).
+# the game. Exit code comes from $FAKE_PROTON_EXIT (default 0);
+# FAKE_PROTON_NO_PREFIX=1 simulates a prefix that fails to build.
 set -euo pipefail
 
-python3 -c '
+"${FAKE_PYTHON:-python3}" -c '
 import json, os, sys
 keys = ["STEAM_COMPAT_DATA_PATH", "STEAM_COMPAT_TOOL_PATHS", "SteamAppId",
-        "STEAM_COMPAT_APP_ID", "STEAM_COMPAT_CLIENT_INSTALL_PATH", "WINEPREFIX"]
+        "STEAM_COMPAT_APP_ID", "STEAM_COMPAT_CLIENT_INSTALL_PATH", "WINEPREFIX",
+        "WEMOD_DECK_EXE"]
 print(json.dumps({"stub": "proton", "path": sys.argv[1], "argv": sys.argv[2:],
                   "cwd": os.getcwd(),
                   "env": {k: os.environ[k] for k in keys if k in os.environ}}))
@@ -18,7 +20,7 @@ tool_dir="$(cd "$(dirname "$0")" && pwd)"
 verb="${1:-}"
 case "$verb" in
     run|waitforexitandrun)
-        if [[ -n "${STEAM_COMPAT_DATA_PATH:-}" ]]; then
+        if [[ -n "${STEAM_COMPAT_DATA_PATH:-}" && -z "${FAKE_PROTON_NO_PREFIX:-}" ]]; then
             mkdir -p "$STEAM_COMPAT_DATA_PATH/pfx/drive_c/users/steamuser"
             [[ -f "$STEAM_COMPAT_DATA_PATH/version" ]] \
                 || cat "$tool_dir/version" > "$STEAM_COMPAT_DATA_PATH/version"

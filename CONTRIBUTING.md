@@ -1,5 +1,10 @@
 # Contribution Policy
 
+> **wemod-deck fork:** this is upstream's policy, kept for reference. In this
+> fork the code lives in `wemod_deck/` (stdlib only, Python 3.9+), tooling is
+> `ruff` + `pytest` + `shellcheck`, and every phase starts with a plan in
+> `docs/plans/`.
+
 Thanks for considering contributing to the WeMod Launcher. This document describes what this project strives for and what a good PR looks like. It's short on purpose.
 
 ## What This Project Strives For

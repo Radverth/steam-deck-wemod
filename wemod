@@ -1,1 +1,10 @@
-src/wemod.py
+#!/usr/bin/env bash
+# Launch Options mode (the compatibility tool is the recommended way):
+# set a game's Launch Options to
+#     ~/wemod-deck/wemod %command%
+# with a Proton version selected in its Compatibility settings.
+here="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+if command -v python3 >/dev/null 2>&1 && [[ -f "$here/wemod-deck" ]]; then
+    exec python3 -s "$here/wemod-deck" launch --legacy-args -- "$@"
+fi
+exec "$@"

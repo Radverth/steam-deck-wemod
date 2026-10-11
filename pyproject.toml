@@ -1,14 +1,18 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["tests"]
+pythonpath = ["tests", "."]
 addopts = "-ra"
 
 [tool.ruff]
-target-version = "py311"
+# wemod_deck must run on Python 3.9+ (SteamOS system Python).
+target-version = "py39"
 line-length = 88
-# Upstream code in src/ is linted once it is rewritten (Phase 1+); the
-# reference installer is kept verbatim.
+# Upstream code in src/ is removed in Phase 1; the reference installer is
+# kept verbatim.
 extend-exclude = ["src", "reference"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["wemod_deck", "fakes"]
