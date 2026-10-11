@@ -49,6 +49,7 @@ REVIEWED = {
     ("backup.py", "_restore_registry", "os.replace"): "restore: merged user.reg",
     ("prefix.py", "unpack", "os.replace"): "runs inside backup.protected (ensure)",
     ("prefix.py", "reset_prefix", "cd.rename"): "after backup.create + pending restore",
+    ("prefix.py", "reset_prefix", "shutil.rmtree"): "after backup + pending restore",
     ("login.py", "link_logins", "roaming.unlink"): "only a symlink, never its target",
     ("login.py", "link_logins", "roaming.rmdir"): "only an empty folder",
     (

@@ -177,17 +177,58 @@ def test_ensure_downloads_closest_and_keeps_one_zip(
     assert prefix.ensure(cd, str(fake_steam.ge_proton), "1234560") is False
 
 
-def test_reset_prefix_moves_aside(fake_steam):
+def test_reset_prefix_backs_up_then_deletes(fake_steam):
+    cd = make_prefix(fake_steam)
+    appid = fake_steam.game().appid
+    saved = snapshot(cd / "pfx/drive_c/users")
+    res = prefix.reset_prefix(fake_steam.steam_root, appid, now=0)
+    assert not cd.exists()
+    assert res["moved_to"] is None
+    pend = backup.pending(appid)
+    assert pend["archive"] == str(res["backup"].archive)
+    cd.mkdir(parents=True)
+    backup.restore(res["backup"].archive, cd, mode="full")
+    assert snapshot(cd / "pfx/drive_c/users") == saved
+
+
+def test_reset_prefix_keep_old(fake_steam):
     cd = make_prefix(fake_steam)
     saved = snapshot(cd)
-    moved = prefix.reset_prefix(fake_steam.steam_root, fake_steam.game().appid, now=0)
+    res = prefix.reset_prefix(
+        fake_steam.steam_root, fake_steam.game().appid, keep_old=True, now=0
+    )
     assert not cd.exists()
-    ((src, dest),) = moved
-    assert src == cd
-    assert dest.parent.name == "compatdata-wemod-deck-old"
-    assert snapshot(dest) == saved
+    assert res["moved_to"].parent.name == "compatdata-wemod-deck-old"
+    assert snapshot(res["moved_to"]) == saved
+
+
+def test_reset_prefix_refusals(fake_steam, monkeypatch):
+    s = fake_steam
     with pytest.raises(PrefixError):
-        prefix.reset_prefix(fake_steam.steam_root, "../1")
+        prefix.reset_prefix(s.steam_root, "../1")
+    with pytest.raises(PrefixError, match="no prefix"):
+        prefix.reset_prefix(s.steam_root, s.game().appid)
+    cd = make_prefix(s)
+    before = snapshot(cd)
+    monkeypatch.setattr(backup, "prefix_in_use", lambda c: [4242])
+    with pytest.raises(PrefixError, match="still running"):
+        prefix.reset_prefix(s.steam_root, s.game().appid)
+    monkeypatch.setattr(backup, "prefix_in_use", lambda c: [])
+    monkeypatch.setattr(backup, "SPACE_MARGIN", 1 << 62)
+    with pytest.raises(backup.NotEnoughSpace):
+        prefix.reset_prefix(s.steam_root, s.game().appid)
+    assert snapshot(cd) == before
+    assert backup.pending(s.game().appid) is None
+
+
+def test_reset_prefix_cli(fake_steam, capsys):
+    from wemod_deck import cli
+
+    make_prefix(fake_steam)
+    assert cli.main(["reset-prefix", fake_steam.game().appid]) == 0
+    out = capsys.readouterr().out
+    assert "Saves backed up" in out and "deleted" in out
+    assert cli.main(["reset-prefix", fake_steam.game().appid]) == 1
 
 
 OLD_USER_REG = """WINE REGISTRY Version 2

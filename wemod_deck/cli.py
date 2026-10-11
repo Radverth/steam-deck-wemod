@@ -35,6 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="move a game's Proton prefix aside so Steam builds a fresh one",
     )
     reset.add_argument("appid")
+    reset.add_argument(
+        "--keep-old",
+        action="store_true",
+        help="move the old prefix aside instead of deleting it",
+    )
 
     setup = sub.add_parser("setup", help="download or update the app")
     setup.add_argument("--force", action="store_true", help="re-download")
@@ -81,7 +86,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "reset-prefix":
         from . import prefix
 
-        return prefix.reset_prefix_cli(args.appid)
+        return prefix.reset_prefix_cli(
+            args.appid, keep_old=args.keep_old, keep=cfg.backups_keep
+        )
     if args.command == "setup":
         from . import app
 

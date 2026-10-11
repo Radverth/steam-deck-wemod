@@ -113,3 +113,18 @@ def test_non_utf8_file_warns():
     path.write_bytes(b'app = "\xff\xfe"\n')
     cfg, warnings = config.load(path)
     assert cfg == Config() and warnings
+
+
+@pytest.mark.parametrize(
+    "text, keep, warned",
+    [
+        ("backups_keep = 3", 3, False),
+        ("backups_keep = 0", 5, True),
+        ("backups_keep = true", 5, True),
+        ('backups_keep = "3"', 5, True),
+    ],
+)
+def test_backups_keep(text, keep, warned):
+    cfg, warnings = config.load(write(text))
+    assert cfg.backups_keep == keep
+    assert bool(warnings) is warned
