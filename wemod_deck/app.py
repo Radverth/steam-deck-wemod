@@ -117,22 +117,23 @@ def install(app: str, *, force: bool = False) -> bool:
 
 
 def ensure_dwritecore(app: str) -> bool:
-    """Put DWriteCore.dll next to the exe. Not fatal if it fails."""
+    """Put DWriteCore.dll next to the exe. Never raises: without it the app
+    still runs, only the Map panel stays blank."""
     target = paths.app_dir(app) / "DWriteCore.dll"
     if target.is_file():
         return True
-    address = net.url("DWRITECORE", version=DWRITECORE_VERSION)
-    with tempfile.TemporaryDirectory(dir=_tmp_parent()) as tmp:
-        try:
+    try:
+        address = net.url("DWRITECORE", version=DWRITECORE_VERSION)
+        with tempfile.TemporaryDirectory(dir=_tmp_parent()) as tmp:
             package = net.download(address, Path(tmp) / "dwrite.nupkg", timeout=30)
             with zipfile.ZipFile(package) as z:
                 data = z.read(DWRITECORE_MEMBER)
             part = target.with_name(target.name + ".part")
             part.write_bytes(data)
             os.replace(part, target)
-        except (OSError, KeyError, zipfile.BadZipFile) as e:
-            log.warning("could not install DWriteCore.dll: %s", e)
-            return False
+    except Exception as e:  # noqa: BLE001 - optional component
+        log.warning("could not install DWriteCore.dll: %s", e)
+        return False
     log.info("installed DWriteCore.dll (%d bytes)", len(data))
     return True
 

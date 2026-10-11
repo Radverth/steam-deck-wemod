@@ -58,23 +58,26 @@ def parse_toml_subset(text: str) -> dict:
         if line.startswith("["):
             if not line.endswith("]") or line.startswith("[["):
                 raise ConfigError(f"line {lineno}: bad table header")
-            table = root
-            for part in _split_key(line[1:-1], lineno):
-                table = table.setdefault(part, {})
-                if not isinstance(table, dict):
-                    raise ConfigError(f"line {lineno}: {part} is not a table")
+            table = _table(root, _split_key(line[1:-1], lineno), lineno)
             continue
         key, sep, value = line.partition("=")
         if not sep:
             raise ConfigError(f"line {lineno}: expected key = value")
         keys = _split_key(key, lineno)
-        target = table
-        for part in keys[:-1]:
-            target = target.setdefault(part, {})
+        target = _table(table, keys[:-1], lineno)
         if keys[-1] in target:
             raise ConfigError(f"line {lineno}: duplicate key {keys[-1]}")
         target[keys[-1]] = _parse_value(value.strip(), lineno)
     return root
+
+
+def _table(root: dict, keys: list[str], lineno: int) -> dict:
+    table = root
+    for part in keys:
+        table = table.setdefault(part, {})
+        if not isinstance(table, dict):
+            raise ConfigError(f"line {lineno}: {part} is not a table")
+    return table
 
 
 def _strip_comment(line: str) -> str:
@@ -131,7 +134,7 @@ def load(path: Path) -> tuple[Config, list[str]]:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return Config(), warnings
-    except OSError as e:
+    except (OSError, UnicodeDecodeError) as e:
         return Config(), [f"cannot read {path}: {e}"]
     try:
         data = parse(text)

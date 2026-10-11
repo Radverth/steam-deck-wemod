@@ -141,3 +141,12 @@ def test_download_errors_leave_nothing(http_server, tmp_path):
     assert not (tmp_path / "x.bin.part").exists()
     with pytest.raises(net.DownloadError):
         net.get_json("http://127.0.0.1:9/nothing-listens-here", timeout=2)
+
+
+def test_dwritecore_never_raises(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("disk on fire")
+
+    monkeypatch.setattr(app, "_tmp_parent", boom)
+    paths.app_dir("wand").mkdir(parents=True)
+    assert app.ensure_dwritecore("wand") is False

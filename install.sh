@@ -85,7 +85,7 @@ INSTALL_DIR="$(realpath -m "$INSTALL_DIR")"
 steam_roots() {
     local d
     for d in "$HOME/.steam/root" "$HOME/.steam/steam" "$HOME/.local/share/Steam"; do
-        [[ -d "$d/steamapps" ]] && realpath "$d"
+        if [[ -d "$d/steamapps" ]]; then realpath "$d"; fi
     done | awk '!seen[$0]++'
 }
 

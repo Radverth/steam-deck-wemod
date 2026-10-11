@@ -99,3 +99,17 @@ def test_subset_parser_used_without_tomllib(monkeypatch):
     cfg, warnings = config.load(write(SAMPLE))
     assert warnings == []
     assert cfg.enabled_for("1234560") is False
+
+
+@pytest.mark.parametrize("text", ["apps = 1\napps.x = 2", "[a]\nb = 1\n[a.b]\nc = 1"])
+def test_subset_parser_type_clashes_are_config_errors(text):
+    with pytest.raises(ConfigError):
+        parse_toml_subset(text)
+
+
+def test_non_utf8_file_warns():
+    path = paths.config_file()
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b'app = "\xff\xfe"\n')
+    cfg, warnings = config.load(path)
+    assert cfg == Config() and warnings

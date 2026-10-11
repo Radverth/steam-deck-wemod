@@ -152,3 +152,16 @@ def test_uninstall_cancel(fake_steam, zipped):
     r = run_install(fake_steam, ["--uninstall"], stdin="no\n")
     assert "Cancelled" in r.stdout
     assert (fake_steam.home / "wemod-deck").exists()
+
+
+def test_steam_only_under_dot_steam(fake_steam, zipped, tmp_path):
+    """The last candidate (~/.local/share/Steam) missing must not trip pipefail."""
+    s = fake_steam
+    real = tmp_path / "SteamElsewhere"
+    s.steam_root.rename(real)
+    for link in ("root", "steam"):
+        (s.home / ".steam" / link).unlink()
+        (s.home / ".steam" / link).symlink_to(real)
+    r = run_install(s, ["--zip", str(zipped), "--no-proton", "--no-wemod"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (real / "compatibilitytools.d/WeMod-GE/proton").is_file()
