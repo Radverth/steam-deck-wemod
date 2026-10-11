@@ -11,6 +11,9 @@ Save protection until Phase 2's backups:
 * nothing is written through a symlink to outside the prefix (the shared
   login symlink, ``dosdevices/z:``), and only the expected ``dosdevices``
   links are created;
+* the registry hives are backed up to ``compatdata/wemod-deck-backup/``
+  before being replaced, and ``user.reg`` keeps every key the prebuilt hive
+  lacks (game settings and some saves live there);
 * nothing is ever deleted; the marker is written last, so an interrupted
   unpack is simply retried on the next launch.
 """
@@ -29,6 +32,13 @@ from . import net, paths, steam
 from .status import log
 
 MARKER = "pfx/.wemod_installer"
+BACKUP_DIR = "wemod-deck-backup"
+# Wine registry hives. They are replaced (the prebuilt ones carry .NET's
+# registration and DLL overrides) but backed up first, and user.reg (HKCU,
+# where games keep settings and sometimes saves) gets every key back that
+# the prebuilt hive doesn't have.
+REGISTRY_FILES = ("pfx/system.reg", "pfx/user.reg", "pfx/userdef.reg")
+MERGED_REGISTRY_FILES = ("pfx/user.reg",)
 RELEASES_TTL = 24 * 3600
 _SAFE_LINKS = {"pfx/dosdevices/c:": "../drive_c", "pfx/dosdevices/z:": "/"}
 _SPACE_MARGIN = 256 * 1024 * 1024
@@ -155,9 +165,13 @@ def unpack(zip_path: Path, compatdata: Path) -> dict:
         _check_space(root, sum(i.file_size for i in infos), "the prefix")
 
         marker_info = None
+        stamp = time.strftime("%Y%m%d-%H%M%S")
         for info in infos:
-            name = info.filename.rstrip("/")
-            rel = PurePosixPath(name)
+            raw = info.filename.rstrip("/")
+            rel = PurePosixPath(raw)
+            # Normalised ("pfx/./a//b" -> "pfx/a/b") so every check below sees
+            # the path that is actually written.
+            name = "/".join(rel.parts)
             through_link = any(name.startswith(link + "/") for link in _SAFE_LINKS)
             if rel.is_absolute() or ".." in rel.parts or not name or through_link:
                 counts["skipped"] += 1
@@ -165,7 +179,7 @@ def unpack(zip_path: Path, compatdata: Path) -> dict:
             if name == MARKER:
                 marker_info = info
                 continue
-            target = compatdata / rel
+            target = compatdata / name
             mode = info.external_attr >> 16
             if stat.S_ISLNK(mode):
                 _make_link(z, info, name, target, counts)
@@ -182,10 +196,20 @@ def unpack(zip_path: Path, compatdata: Path) -> dict:
                 if user_file or target.is_dir():
                     counts["kept_user_files" if user_file else "skipped"] += 1
                     continue
+            old_registry = None
+            if name in REGISTRY_FILES and target.is_file() and not target.is_symlink():
+                old_registry = _backup(compatdata, name, stamp)
+                counts["registry_backups"] = counts.get("registry_backups", 0) + 1
             target.parent.mkdir(parents=True, exist_ok=True)
             part = target.with_name(target.name + ".wemod-deck-part")
             with z.open(info) as src, open(part, "wb") as out:
                 shutil.copyfileobj(src, out)
+            if old_registry is not None and name in MERGED_REGISTRY_FILES:
+                merged = merge_registry(
+                    part.read_text("utf-8", "surrogateescape"),
+                    old_registry.read_text("utf-8", "surrogateescape"),
+                )
+                part.write_text(merged, "utf-8", "surrogateescape")
             os.replace(part, target)
             counts["written"] += 1
 
@@ -193,6 +217,46 @@ def unpack(zip_path: Path, compatdata: Path) -> dict:
         (compatdata / MARKER).parent.mkdir(parents=True, exist_ok=True)
         (compatdata / MARKER).write_bytes(z.read(marker_info) if marker_info else b"")
     return counts
+
+
+def _backup(compatdata: Path, name: str, stamp: str) -> Path:
+    """Copy ``compatdata/name`` to ``compatdata/wemod-deck-backup/<stamp>/name``."""
+    dest = compatdata / BACKUP_DIR / stamp / name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(compatdata / name, dest)
+    return dest
+
+
+def _registry_sections(text: str) -> tuple[list[str], list[tuple[str, list[str]]]]:
+    """Split a Wine ``.reg`` file into its preamble and ``[key] stamp``
+    sections. Section names compare case-insensitively, like the registry."""
+    preamble: list[str] = []
+    sections: list[tuple[str, list[str]]] = []
+    for line in text.splitlines(keepends=True):
+        if line.startswith("[") and "]" in line:
+            key = line[1 : line.rindex("]")].lower()
+            sections.append((key, [line]))
+        elif sections:
+            sections[-1][1].append(line)
+        else:
+            preamble.append(line)
+    return preamble, sections
+
+
+def merge_registry(new: str, old: str) -> str:
+    """``new`` plus every section of ``old`` that ``new`` lacks. Keys that
+    exist in both keep the prebuilt (``new``) values."""
+    _, new_sections = _registry_sections(new)
+    _, old_sections = _registry_sections(old)
+    have = {key for key, _ in new_sections}
+    extra = [lines for key, lines in old_sections if key not in have]
+    if not extra:
+        return new
+    out = new if new.endswith("\n") else new + "\n"
+    for lines in extra:
+        block = "".join(lines)
+        out += block if block.endswith("\n") else block + "\n"
+    return out
 
 
 def _make_link(z, info, name: str, target: Path, counts: dict) -> None:

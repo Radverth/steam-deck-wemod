@@ -9,6 +9,13 @@ prefix, overwriting anything with the same name, including files under
 Rules in `wemod_deck/prefix.py`:
 - Under `pfx/drive_c/users/`, existing files are never overwritten; only
   missing files are added.
+- Zip entry names are normalised (`pfx/./a`, `pfx//a`) before any check.
+- The registry hives (`pfx/system.reg`, `user.reg`, `userdef.reg`) must be
+  replaced: the prebuilt ones carry .NET's registration and DLL overrides.
+  They are first copied to `compatdata/wemod-deck-backup/<time>/`, and
+  `user.reg` (HKCU, where e.g. Unity games keep PlayerPrefs and some saves)
+  gets back every key the prebuilt hive doesn't have. Keys in both keep the
+  prebuilt values.
 - Nothing is written through a symlink to outside the prefix (the shared
   login link, `dosdevices/z:` → `/`), and absolute or `..` paths are skipped.
 - Only the `dosdevices/c:` and `z:` links are created, and only when absent.

@@ -186,3 +186,68 @@ def test_reset_prefix_moves_aside(fake_steam):
     assert snapshot(dest) == saved
     with pytest.raises(PrefixError):
         prefix.reset_prefix(fake_steam.steam_root, "../1")
+
+
+OLD_USER_REG = """WINE REGISTRY Version 2
+;; All keys relative to \\\\User\\\\S-1-5-21-0-0-0-1000
+
+#arch=win64
+
+[Software\\\\Wine\\\\DllOverrides] 1600000000
+"mscoree"="builtin"
+
+[Software\\\\Unity\\\\UnityEditor\\\\Studio\\\\Game] 1700000001
+"Save_Slot1_h123"=hex:01,02,03
+"""
+
+NEW_USER_REG = """WINE REGISTRY Version 2
+;; All keys relative to \\\\User\\\\S-1-5-21-0-0-0-1000
+
+#arch=win64
+
+[Software\\\\wine\\\\dlloverrides] 1650000000
+"mscoree"="native"
+"""
+
+
+def test_merge_registry_keeps_game_keys_and_prebuilt_overrides():
+    merged = prefix.merge_registry(NEW_USER_REG, OLD_USER_REG)
+    assert merged.startswith(NEW_USER_REG)
+    assert '"mscoree"="native"' in merged
+    assert '"mscoree"="builtin"' not in merged  # same key (case-insensitive)
+    assert '"Save_Slot1_h123"=hex:01,02,03' in merged
+    assert prefix.merge_registry(NEW_USER_REG, NEW_USER_REG) == NEW_USER_REG
+
+
+def test_unpack_backs_up_and_merges_registry(fake_steam, tmp_path):
+    cd = make_prefix(fake_steam)
+    (cd / "pfx/user.reg").write_text(OLD_USER_REG)
+    (cd / "pfx/system.reg").write_text("WINE REGISTRY old system\n")
+    zip_path = build_fake_prefix_zip(
+        tmp_path / "p.zip", extra={"pfx/user.reg": NEW_USER_REG.encode()}
+    )
+    counts = prefix.unpack(zip_path, cd)
+    assert counts["registry_backups"] == 2
+    user = (cd / "pfx/user.reg").read_text()
+    assert '"mscoree"="native"' in user and "Save_Slot1_h123" in user
+    assert (cd / "pfx/system.reg").read_text() == "WINE REGISTRY prebuilt\n"
+    (backup,) = (cd / prefix.BACKUP_DIR).iterdir()
+    assert (backup / "pfx/user.reg").read_text() == OLD_USER_REG
+    assert (backup / "pfx/system.reg").read_text() == "WINE REGISTRY old system\n"
+
+
+@pytest.mark.parametrize(
+    "sneaky",
+    [
+        "pfx/./drive_c/users/steamuser/Saved Games/Game/save.dat",
+        "pfx//drive_c/users/steamuser/Saved Games/Game/save.dat",
+    ],
+)
+def test_unpack_normalises_names_before_checks(fake_steam, tmp_path, sneaky):
+    cd = make_prefix(fake_steam)
+    save = cd / "pfx/drive_c/users/steamuser/Saved Games/Game/save.dat"
+    before = save.read_bytes()
+    prefix.unpack(
+        build_fake_prefix_zip(tmp_path / "p.zip", extra={sneaky: b"EVIL"}), cd
+    )
+    assert save.read_bytes() == before
