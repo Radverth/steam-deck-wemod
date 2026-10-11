@@ -403,3 +403,41 @@ def test_backups_restore_cli_reports_conflicting_save(fake_steam, tool, tmp_path
     assert result.returncode == 1
     assert "restore incomplete" in result.stderr
     assert external.read_bytes() == b"untouched"
+
+
+def test_use_wemod_switches_app_and_launch(fake_steam, tool, http_server, tmp_path):
+    """`wemod-deck use wemod` downloads WeMod 11 and launches use WeMod.exe."""
+    from fakes.fake_nupkg import build_fake_nupkg, sha256
+
+    s, game = fake_steam, fake_steam.game()
+    pkg = build_fake_nupkg(tmp_path / "WeMod-11.6.0-full.nupkg", app="wemod")
+    http_server.add("/cdn/WeMod-11.6.0-full.nupkg", pkg.read_bytes())
+    manifest = {
+        "version": "11.6.0",
+        "architecture": {
+            "64bit": {
+                "url": http_server.url("/cdn/WeMod-11.6.0-full.nupkg"),
+                "hash": sha256(pkg),
+            }
+        },
+    }
+    env = {
+        **OFFLINE_ENV,
+        "HOME": str(s.home),
+        "PATH": os.environ["PATH"],
+        "WEMOD_DECK_URL_SCOOP_WEMOD": http_server.add("/scoop/wemod.json", manifest),
+    }
+    r = subprocess.run(
+        [sys.executable, str(s.home / "wemod-deck/wemod-deck"), "use", "wemod"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "Now using wemod" in r.stdout
+    assert (s.home / ".local/share/wemod-deck/app/wemod/WeMod.exe").is_file()
+
+    ready_prefix(game)
+    log = launch(s, tool, game)
+    assert log[-1]["env"]["WEMOD_DECK_EXE"].endswith("\\WeMod.exe")

@@ -183,3 +183,40 @@ def load(path: Path) -> tuple[Config, list[str]]:
         apps[appid] = clean
 
     return Config(apps=apps, **values), warnings
+
+
+def set_app(path: Path, app: str) -> None:
+    """Set the top-level ``app`` key, keeping everything else in the file.
+    Refuses (ConfigError) to rewrite a file it can't parse, so a typo
+    elsewhere is never silently thrown away."""
+    import re
+
+    from .status import atomic_write
+
+    if app not in APPS:
+        raise ConfigError(f"app must be one of {', '.join(APPS)}")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        text = ""
+    except (OSError, UnicodeDecodeError) as e:
+        raise ConfigError(f"cannot read {path}: {e}") from None
+    if text.strip():
+        parse(text)  # raises ConfigError for a broken file
+
+    lines = text.splitlines(keepends=True)
+    line = f'app = "{app}"\n'
+    first_table = next(
+        (i for i, ln in enumerate(lines) if ln.lstrip().startswith("[")), len(lines)
+    )
+    for i in range(first_table):
+        if re.match(r'\s*"?app"?\s*=', lines[i]):
+            lines[i] = line
+            break
+    else:
+        lines.insert(0, line)
+    new = "".join(lines)
+    data = parse(new)
+    if data.get("app") != app:  # pragma: no cover - defensive
+        raise ConfigError("could not set app in config.toml")
+    atomic_write(path, new)
