@@ -19,6 +19,20 @@ from fakes.http_server import FakeServer
 from fakes.steam_root import GE_TOOLMANIFEST, STUBS, FakeSteam
 
 REPO = Path(__file__).resolve().parents[2]
+
+# Every URL wemod-deck or install.sh can fetch, pointed at a closed port.
+# Subprocess environments start from this, so a test that forgets to serve
+# something fails instead of downloading from the internet.
+DEAD_URL = "http://127.0.0.1:9/offline"
+OFFLINE_ENV = {
+    "WEMOD_DECK_URL_SCOOP_WAND": DEAD_URL,
+    "WEMOD_DECK_URL_SCOOP_WEMOD": DEAD_URL,
+    "WEMOD_DECK_URL_DWRITECORE": DEAD_URL,
+    "WEMOD_DECK_URL_PREFIX_RELEASES": DEAD_URL,
+    "WEMOD_DECK_GE_LATEST": DEAD_URL,
+    "WEMOD_DECK_GE_DL": DEAD_URL,
+    "WEMOD_DECK_REPO": DEAD_URL,
+}
 SHIPPED = ["wemod_deck", "compat", "wemod-deck", "wemod", "install.sh", "LICENSE"]
 
 
@@ -132,6 +146,7 @@ def run_install(
     stdin: str = "",
 ) -> subprocess.CompletedProcess:
     full_env = {
+        **OFFLINE_ENV,
         "HOME": str(steam.home),
         "PATH": f"{Path(sys.executable).parent}:{os.environ['PATH']}",
         **(env or {}),

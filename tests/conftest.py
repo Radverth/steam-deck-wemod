@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from fakes.http_server import FakeServer
+from fakes.installer import OFFLINE_ENV
 from fakes.steam_root import FakeSteam, build_fake_steam
 
 
@@ -14,6 +15,9 @@ def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(home))
     for var in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"):
         monkeypatch.delenv(var, raising=False)
+    # No test may reach the real internet: unset URLs go nowhere.
+    for key, value in OFFLINE_ENV.items():
+        monkeypatch.setenv(key, value)
     return home
 
 
