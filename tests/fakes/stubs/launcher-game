@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Fake game that behaves like a launcher (Ubisoft/2K style): it starts the
+# "real" game as a child process and exits straight away. The child writes
+# its PID to $FAKE_GAME_PIDFILE (if set) and lives for $FAKE_CHILD_SECONDS.
+set -euo pipefail
+
+(
+    [[ -z "${FAKE_GAME_PIDFILE:-}" ]] || printf '%s\n' "$BASHPID" > "$FAKE_GAME_PIDFILE"
+    sleep "${FAKE_CHILD_SECONDS:-2}"
+) </dev/null >/dev/null 2>&1 &
+disown
+exit 0

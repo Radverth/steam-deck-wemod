@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Fake for Steam's reaper, steam-launch-wrapper and the Steam Linux Runtime
+# _v2-entry-point. Logs its argv as one JSON line to $FAKE_STEAM_LOG, then
+# runs everything after the first "--" (like the real tools do).
+set -euo pipefail
+
+python3 -c '
+import json, os, sys
+print(json.dumps({"stub": os.path.basename(sys.argv[1]), "path": sys.argv[1],
+                  "argv": sys.argv[2:], "cwd": os.getcwd()}))
+' "$0" "$@" >> "${FAKE_STEAM_LOG:?FAKE_STEAM_LOG must be set}"
+
+while [[ $# -gt 0 && "$1" != "--" ]]; do
+    shift
+done
+[[ $# -gt 0 ]] || exit 0
+shift
+exec "$@"

@@ -1,3 +1,9 @@
+# wemod-deck (Steam Deck fork, work in progress)
+
+> This repository is a Steam Deck-first fork of [DeckCheatz/wemod-launcher](https://github.com/DeckCheatz/wemod-launcher) (AGPL-3.0). All credit for the original launcher goes to its authors. The fork is at Phase 0 (test harness only); the launcher below is still upstream 1.543, unchanged. See `CHANGELOG.md` and `docs/`.
+
+---
+
 # WeMod Launcher (Wemod for Linux)
 
 **The WeMod Launcher is currently on version 1.543.**
