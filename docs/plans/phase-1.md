@@ -50,7 +50,7 @@ wemod_deck/                       new Python package, stdlib only
   login.py                        shared login symlink (ported syncwemod, headless)
   launch.py                       orchestrates a launch, fail-open
   data/wemod-deck.bat             headless replacement for wemod.bat
-wemod                             shim: `exec python3 -m wemod_deck launch --legacy-args "$@"`
+wemod                             shim: `exec python3 -s ~/wemod-deck/wemod-deck launch --legacy-args -- "$@"`
 ```
 
 ### Compat-tool wrapper (`compat/proton`)
@@ -63,8 +63,8 @@ right (field-tested lessons 3–6) is kept exactly:
 - no `pfx/drive_c` yet (first launch) → plain Proton;
 - `wemod-deck` or `python3` missing → plain Proton.
 
-Changes: it calls `python3 -m wemod_deck launch -- <entry-point --verb=V --> GE/proton V exe args…`
-with `PYTHONPATH` pointing at the install, and exports `WEMOD_DECK_TOOL=1`.
+Changes: it calls `python3 -s ~/wemod-deck/wemod-deck launch -- <entry-point --verb=V --> GE/proton V exe args…`;
+machine-specific values come from `tool.conf` next to it.
 Per-AppID opt-out lives in TOML, so `wemod-deck` (not bash) checks it and
 runs plain Proton itself.
 
@@ -129,9 +129,9 @@ warning; it never blocks a launch.
 
 ### Data layout (`~/.local/share/wemod-deck/`)
 `app/<wemod|wand>/` (binaries), `login/<app>/`, `bin/wemod-deck.bat`,
-`logs/launch.log` (rotating, 5 × 1 MB), `status.json`, `displaced-login/`, `old-prefixes/`.
-**Migration:** if `~/wemod-launcher/wemod_data/` exists, `install.sh`
-**copies** `wemod_bin` and `wemod_login` into the new layout (the old
+`logs/launch.log` (rotating, 5 × 1 MB), `status.json`, `displaced-login/`.
+**Migration:** if `~/wemod-launcher/wemod_data/` exists, `wemod-deck setup`
+(run by `install.sh`) **copies** `wemod_bin` and `wemod_login` into the new layout once (the old
 folder stays). On the next launch each game's login symlink is pointed at
 the new location.
 
@@ -140,9 +140,9 @@ the new location.
   entry point (every library), app exe, DWriteCore, config validity, last
   status/error. Prints OK/WARN/FAIL; exit code 0/1.
 - `wemod-deck reset-prefix <appid>`: **moves** `compatdata/<appid>` to
-  `~/.local/share/wemod-deck/old-prefixes/<appid>-<ts>/` (same filesystem →
-  rename; otherwise refuses and explains). Nothing is deleted in Phase 1. Phase 2 adds
-  backup and restore, then real deletion.
+  `<same library>/steamapps/compatdata-wemod-deck-old/<appid>-<ts>/` (same
+  filesystem, so a rename, also on the SD card). Nothing is deleted in
+  Phase 1. Phase 2 adds backup and restore, then real deletion.
 - `wemod-deck setup [--force]`: download/update the app and DWriteCore.
 - `wemod-deck status [<appid>]`: prints `status.json`.
 
@@ -152,10 +152,10 @@ Port of `reference/install-wemod-launcher.sh` with the same flags
 and the same GE logic (redirect tag lookup, `-x86_64` asset first, folder
 name read from the tarball, `curl -r 0-0` probe, `~/.cache` downloads,
 `.sha512sum` check, SIGPIPE-safe `tar | head`). Changes:
-- installs **this** repo (git clone of `Radverth/steam-deck-wemod` at `main`,
+- installs **this** repo to `~/wemod-deck` (git clone of `Radverth/steam-deck-wemod` at `main`,
   or `--zip`); no venv, pip, FreeSimpleGUI, tkinter or winetricks;
 - checks `python3 >= 3.9` (see decision 4);
-- pre-downloads the app via `python3 -m wemod_deck setup`;
+- pre-downloads the app via `wemod-deck setup`;
 - generates the compat tool from `compat/`; drops the Flatpak paths;
 - `--uninstall` removes the install dir and the tool, and keeps
   `~/.local/share/wemod-deck` (login, binaries) unless you type `YES` to a
@@ -198,12 +198,13 @@ scenario:
 | launcher (`wemod-deck`) missing | plain Proton |
 | runtime missing | GE proton called directly (no entry-point), WeMod still used |
 | runtime on SD card | SD-card entry-point used |
-| broken config / download failure / parse error | plain Proton + status.json error |
+| broken config | defaults (WeMod used) + warning in the log |
+| download failure / parse error / python3 missing | plain Proton (+ status.json error) |
 
 **Other checks:**
 - **No Tk:** an AST scan of `wemod_deck/` finds no `tkinter`/`FreeSimpleGUI`
   imports. A launch subprocess also runs with both blocked in `sys.modules`.
-- **No network** in a launch once set up (the socket is blocked in the test).
+- **No network** in a launch once set up (all URLs point at a closed port and the fake server sees no requests).
 - **Saves:** a prefix with fake save files under `users/steamuser` gets a
   prebuilt prefix unpacked over it; every save file is byte-identical
   afterwards.
@@ -212,12 +213,15 @@ scenario:
 
 ## Risks
 - **Wand's login folder** is `Roaming/Wand` by its `productName`; Tom confirms the login is kept between games on the Deck.
-- **Prefix download size:** the prebuilt prefix is ~0.9 GB on the first WeMod launch of each
-  game. That's unchanged from today; Phase 6 addresses storage.
+- **Prefix size:** the prebuilt prefix zip (~0.9 GB) is downloaded once per
+  version and kept in `~/.cache/wemod-deck/prefixes/` (only the latest one);
+  each game's prefix still grows by the unpacked .NET files. Phase 6 addresses storage.
 - **Exec'ing the final command** means no post-game step; that's intended (no
   troubleshooter). Early-close handling is in the `.bat` (decision 3).
-- **Tom's existing setup:** existing `~/wemod-launcher` installs and Launch Options lines
-  keep working through the `wemod` shim. Old prefixes have
+- **Tom's existing setup:** wemod-deck installs to `~/wemod-deck`, so the
+  old `~/wemod-launcher` and its Launch Options lines keep working untouched
+  until he switches. The `WeMod-GE` tool is replaced in place, so games
+  already set to it switch to wemod-deck. Old prefixes have
   `.wemod_installer`, so they are reused without a new download.
 
 ## Tom's Deck checklist (from scope)
@@ -225,3 +229,13 @@ scenario:
 - Launch 3 games, one of them Deck Verified with a forced tool. No popups. WeMod appears.
 - `wemod-deck doctor` is all OK.
 - `install.sh --uninstall` works.
+
+## As built (2026-10-11)
+Implemented as planned, with these differences:
+- Code installs to `~/wemod-deck` (ADR 0002). `wemod-deck` is a small entry
+  script run with `python3 -s`, so no `PYTHONPATH` is needed.
+- `reset-prefix` moves the prefix inside the same library (see CLI above).
+- A broken config falls back to defaults rather than plain Proton.
+- The Scoop manifest's SHA-256 is already verified (planned for Phase 3).
+- Tests also run the whole suite, including end-to-end launches, on Python 3.9.
+- ADRs 0002–0005 record the decisions.
