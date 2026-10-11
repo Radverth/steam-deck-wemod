@@ -6,7 +6,7 @@ import os
 import pytest
 
 from fakes.fake_prefix import build_fake_prefix_zip
-from wemod_deck import net, paths, prefix
+from wemod_deck import backup, net, paths, prefix
 from wemod_deck.prefix import PrefixError
 
 RELEASES = [
@@ -169,10 +169,12 @@ def test_ensure_downloads_closest_and_keeps_one_zip(
     stale.parent.mkdir(parents=True)
     stale.write_bytes(b"old")
 
-    assert prefix.ensure(cd, str(fake_steam.ge_proton)) is True
+    assert prefix.ensure(cd, str(fake_steam.ge_proton), "1234560") is True
     assert prefix.has_wemod(cd)
+    (snap,) = backup.list_backups("1234560")
+    assert snap.manifest["reason"] == "unpack"
     assert [p.name for p in stale.parent.iterdir()] == ["GE-Proton10.1.zip"]
-    assert prefix.ensure(cd, str(fake_steam.ge_proton)) is False  # already done
+    assert prefix.ensure(cd, str(fake_steam.ge_proton), "1234560") is False
 
 
 def test_reset_prefix_moves_aside(fake_steam):

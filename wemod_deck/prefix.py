@@ -28,7 +28,7 @@ import time
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from . import net, paths, steam
+from . import backup, net, paths, steam
 from .status import log
 
 MARKER = "pfx/.wemod_installer"
@@ -286,9 +286,12 @@ def _fix_dosdevices(compatdata: Path) -> None:
 # ------------------------------------------------------------------ install --
 
 
-def ensure(compatdata: Path, proton: str) -> bool:
+def ensure(
+    compatdata: Path, proton: str, appid: str, *, keep: int = backup.DEFAULT_KEEP
+) -> bool:
     """Make sure the prefix has WeMod's prerequisites. Returns True if a
-    prebuilt prefix was unpacked. Raises PrefixError/DownloadError."""
+    prebuilt prefix was unpacked. The unpack only runs after a verified
+    save backup. Raises PrefixError/DownloadError/BackupError."""
     if has_wemod(compatdata):
         return False
     want = steam.prefix_proton_version(compatdata) or steam.parse_proton_version(
@@ -311,7 +314,8 @@ def ensure(compatdata: Path, proton: str) -> bool:
             *want,
         )
         net.download(asset["browser_download_url"], zip_path, timeout=60)
-    counts = unpack(zip_path, compatdata)
+    with backup.protected(compatdata, appid, "unpack", keep=keep):
+        counts = unpack(zip_path, compatdata)
     log.info("unpacked %s into %s: %s", zip_path.name, compatdata, counts)
     # Keep only the zip just used: one ~0.9 GB file instead of one per version.
     for other in zips.glob("*.zip"):

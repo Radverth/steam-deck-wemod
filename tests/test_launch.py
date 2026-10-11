@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from fakes.fake_prefix import build_fake_prefix_zip
-from wemod_deck import app, launch, login, paths, status
+from wemod_deck import app, backup, launch, login, paths, status
 from wemod_deck import argv as A
 from wemod_deck.config import Config
 
@@ -182,3 +182,26 @@ def test_ready_file_is_created_and_not_passed_on(ready, tmp_path, monkeypatch):
     launch.main(ready.proton_argv(ready.game()), Config(), [], execute=ex)
     assert flag.exists()
     assert "WEMOD_DECK_READY_FILE" not in ex.calls[0][2]
+
+
+def test_no_space_for_backup_leaves_prefix_alone(
+    ready, http_server, monkeypatch, tmp_path
+):
+    cd = ready.game().compatdata
+    (cd / "pfx/.wemod_installer").unlink()
+    (cd / "version").write_text("x GE-Proton11-7\n")
+    body = build_fake_prefix_zip(tmp_path / "p.zip").read_bytes()
+    url = http_server.add("/p.zip", body)
+    rel = [
+        {
+            "tag_name": "PfxVer10.1",
+            "assets": [{"name": "p.zip", "browser_download_url": url, "size": 1}],
+        }
+    ]
+    monkeypatch.setenv("WEMOD_DECK_URL_PREFIX_RELEASES", http_server.add("/rel", rel))
+    monkeypatch.setattr(backup, "SPACE_MARGIN", 1 << 62)
+    d = decide(ready)
+    assert d.state == "error" and "no save backup" in d.message
+    assert d.command == ready.proton_argv(ready.game())
+    assert not (cd / "pfx/.wemod_installer").exists()
+    assert not (cd / "pfx/system.reg").exists()  # nothing unpacked

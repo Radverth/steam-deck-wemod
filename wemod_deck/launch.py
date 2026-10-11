@@ -12,7 +12,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import app, login, net, paths, prefix, status
+from . import app, backup, login, net, paths, prefix, status
 from . import argv as argv_mod
 from .config import Config
 from .status import log
@@ -70,7 +70,9 @@ def decide(
         if not app.is_installed(cfg.app):
             log.info("%s is not installed yet, downloading it", cfg.app)
             app.install(cfg.app)
-        prefix.ensure(compatdata, cmd.proton)
+        prefix.ensure(compatdata, cmd.proton, appid or compatdata.name)
+    except backup.BackupError as e:
+        return _plain(cmd, "error", f"no save backup possible, prefix left alone: {e}")
     except (app.AppError, prefix.PrefixError, net.DownloadError, OSError) as e:
         return _plain(cmd, "error", f"{type(e).__name__}: {e}")
 
