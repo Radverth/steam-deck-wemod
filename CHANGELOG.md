@@ -9,9 +9,9 @@ is DeckCheatz/wemod-launcher.
 - New `wemod_deck` launcher (Python 3.9+, stdlib only): no popups, no venv, pip or Tk at runtime.
 - **Wand (formerly WeMod) is the default app**; `app = "wemod"` keeps the 11.x client. Downloads come from WeMod's CDN via the Scoop manifest and are SHA-256 verified.
 - "WeMod + GE-Proton" compat tool ported from the reference installer: runs on the host, finds the Steam Linux Runtime on every library (SD card included), only game launches go through wemod-deck.
-- Fail-open: if anything goes wrong before the game starts, it starts with plain Proton and the error goes to `status.json` and `logs/launch.log`.
+- Fail-open: if anything goes wrong before the game starts (even a broken Python), it starts with plain Proton and the error goes to `status.json` and `logs/launch.log`.
 - Strict compat-tool argument parsing; Launch Options mode (`~/wemod-deck/wemod %command%`) uses a simpler parser and fixes upstream's custom-runner crash.
-- Prebuilt prefixes: closest version picked automatically, unpacked without overwriting files under `drive_c/users` (saves), release list cached 24 h.
+- Prebuilt prefixes: closest version picked automatically, unpacked without overwriting files under `drive_c/users` (saves); registry hives are backed up first and `user.reg` keeps the game's own keys; release list cached 24 h.
 - Shared login for `Roaming/Wand` and `Roaming/WeMod`; a prefix's own login is moved aside, never deleted.
 - Per-game opt-out in `~/.config/wemod-deck/config.toml`.
 - New commands: `doctor`, `status`, `setup`, `reset-prefix` (moves the prefix aside, deletes nothing).
