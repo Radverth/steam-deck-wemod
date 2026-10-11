@@ -74,10 +74,10 @@ def decide(
     except (app.AppError, prefix.PrefixError, net.DownloadError, OSError) as e:
         return _plain(cmd, "error", f"{type(e).__name__}: {e}")
 
+    login.migrate_legacy()  # once; keeps an upstream login before re-linking
     for action in login.link_logins(compatdata, appid or compatdata.name):
         log.info("login: %s", action)
-    if not (paths.app_dir(cfg.app) / "DWriteCore.dll").is_file():
-        app.ensure_dwritecore(cfg.app)  # not fatal
+    app.ensure_dwritecore(cfg.app)  # never raises; no-op when present
 
     bat = install_bat()
     command = [
@@ -91,6 +91,21 @@ def decide(
     ]
     exe = "Z:" + str(app.exe_path(cfg.app)).replace(os.sep, "\\")
     return Decision(command, "ok", f"started with {cfg.app}", {"WEMOD_DECK_EXE": exe})
+
+
+def _handover(execute, command: list[str], extra_env: dict[str, str]) -> None:
+    """Tell the compat tool we got this far (it falls back to plain Proton
+    otherwise), then replace this process with ``command``."""
+    env = {**os.environ, **extra_env}
+    ready = env.pop("WEMOD_DECK_READY_FILE", None)
+    if ready:
+        try:
+            Path(ready).touch()
+        except OSError as e:
+            log.warning("could not create ready file %s: %s", ready, e)
+    for h in log.handlers:
+        h.flush()
+    execute(command[0], command, env)
 
 
 def main(
@@ -115,7 +130,7 @@ def main(
         status.write_status(appid, "error", f"cannot parse launch command: {e}")
         if not argv:
             return 1
-        execute(argv[0], argv, dict(os.environ))
+        _handover(execute, argv, {})
         return 1  # only reached when execute is a test double
 
     try:
@@ -128,7 +143,5 @@ def main(
     level("%s: %s", decision.state, decision.message)
     log.info("exec %s", decision.command)
     status.write_status(appid, decision.state, decision.message)
-    for h in log.handlers:
-        h.flush()
-    execute(decision.command[0], decision.command, {**os.environ, **decision.env})
+    _handover(execute, decision.command, decision.env)
     return 0  # only reached when execute is a test double

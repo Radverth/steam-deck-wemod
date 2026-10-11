@@ -18,6 +18,9 @@ launcher run on the host while Proton runs in the container.
 - Every decision has a default. Errors before the game starts are logged and
   written to `status.json`, and the original command is `exec`'d unchanged.
   "The game always starts" beats "WeMod always starts".
+- The wrapper doesn't `exec` Python: wemod-deck creates a ready file just
+  before it hands over to the game. If Python dies before that (broken
+  interpreter, syntax or import error), the wrapper starts plain Proton.
 - The final command is `exec`'d, so there is no post-game step (the
   troubleshooter becomes `doctor` / `reset-prefix`).
 - Compat-tool argv is parsed strictly; anything unexpected is a parse error

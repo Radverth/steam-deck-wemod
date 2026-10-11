@@ -170,3 +170,15 @@ def test_bat_is_headless():
     assert "waituser" not in lowered
     assert "%wemod_deck_exe%" in lowered
     assert "start /wait" in lowered
+    code = [ln for ln in lowered.splitlines() if not ln.strip().startswith("rem")]
+    assert not any("%time%" in ln for ln in code)  # locale-dependent in Wine
+    assert ":wemod-deck-timer" in lowered
+
+
+def test_ready_file_is_created_and_not_passed_on(ready, tmp_path, monkeypatch):
+    flag = tmp_path / "ready"
+    monkeypatch.setenv("WEMOD_DECK_READY_FILE", str(flag))
+    ex = Exec()
+    launch.main(ready.proton_argv(ready.game()), Config(), [], execute=ex)
+    assert flag.exists()
+    assert "WEMOD_DECK_READY_FILE" not in ex.calls[0][2]

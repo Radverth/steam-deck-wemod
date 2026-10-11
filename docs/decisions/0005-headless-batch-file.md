@@ -12,7 +12,10 @@ app, look for it with `tasklist` up to 4 × 5 s, `start /wait` the game,
 - the app exe comes from `%WEMOD_DECK_EXE%` instead of being worked out
   from the bat's own location;
 - a game that exits within `WEMOD_DECK_EARLY_SECONDS` (default 60) is
-  treated as a launcher hand-off and the app is left open (Tom's decision 3);
+  treated as a launcher hand-off and the app is left open (Tom's decision 3).
+  The time is measured with a background copy of the bat that creates a
+  marker file after that many seconds (`ping` delay), not with `%TIME%`,
+  whose format in Wine depends on the locale and may lack seconds;
 - the app is closed by image name (`/IM`), which also works when the PID
   wasn't found;
 - it is installed with CRLF line endings, the native format for `cmd`.

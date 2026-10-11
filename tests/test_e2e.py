@@ -50,6 +50,8 @@ def launch(steam, tool, game, verb=VERB, env=None, path=None, remote=None):
     full = {**OFFLINE_ENV, **served, **steam.env(game), **(env or {})}
     full["PATH"] = path or f"{Path(sys.executable).parent}:{os.environ['PATH']}"
     full["FAKE_PYTHON"] = sys.executable
+    full.setdefault("XDG_RUNTIME_DIR", str(steam.home.parent / "run"))
+    Path(full["XDG_RUNTIME_DIR"]).mkdir(exist_ok=True)
     r = subprocess.run(
         [str(tool), verb, str(game.exe)],
         env=full,
@@ -150,6 +152,23 @@ def test_launcher_missing(fake_steam, tool):
     ready_prefix(game)
     shutil.rmtree(s.home / "wemod-deck")
     assert calls(launch(s, tool, game)) == plain_calls(s, game)
+
+
+def test_broken_launcher_falls_back(fake_steam, tool):
+    """A wemod-deck that dies before handing over (here: a syntax error)
+    must not stop the game."""
+    s, game = fake_steam, fake_steam.game()
+    ready_prefix(game)
+    (s.home / "wemod-deck/wemod_deck/launch.py").write_text("this is not python(\n")
+    assert calls(launch(s, tool, game)) == plain_calls(s, game)
+
+
+def test_ready_file_cleaned_up(fake_steam, tool):
+    s, game = fake_steam, fake_steam.game()
+    ready_prefix(game)
+    log = launch(s, tool, game)
+    assert log[1]["argv"] == wemod_proton_argv(s)
+    assert list((s.home.parent / "run").iterdir()) == []
 
 
 def test_python_missing(fake_steam, tool, tmp_path):

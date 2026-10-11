@@ -7,6 +7,7 @@ REM   WEMOD_DECK_EXE            Windows path of Wand.exe / WeMod.exe (required)
 REM   WEMOD_DECK_EARLY_SECONDS  a game that exits sooner than this is treated
 REM                             as a launcher hand-off: the app is left open
 REM                             (close it yourself or use Steam > Exit Game).
+if "%~1"==":wemod-deck-timer" goto timer
 setlocal
 set "appexe=%WEMOD_DECK_EXE%"
 if not defined appexe goto rungame
@@ -32,20 +33,24 @@ echo wemod-deck: %appname% not seen in the process list, starting the game anywa
 :found
 
 :rungame
+REM A background copy of this file creates %marker% after %early% seconds.
+REM If it exists when the game exits, the game ran long enough. (No %TIME%
+REM maths: its format depends on the locale and may lack seconds.)
+set "marker=%TEMP%\wemod-deck-ran-%RANDOM%%RANDOM%.tmp"
+if exist "%marker%" del "%marker%"
+set /A pings=early+1
+start "" /b cmd /c call "%~f0" :wemod-deck-timer "%marker%" %pings%
+
 echo wemod-deck: running %*
-call :seconds started
 start /wait "" %*
-call :seconds ended
-set /A elapsed=ended-started
-if %elapsed% LSS 0 set /A elapsed+=86400
-echo wemod-deck: game exited after %elapsed% s
 if not defined appexe goto done
 
-if %elapsed% LSS %early% (
-    echo wemod-deck: that was quick, probably a launcher handing off to the game.
+if not exist "%marker%" (
+    echo wemod-deck: the game exited within %early% s, probably a launcher handing off.
     echo wemod-deck: leaving %appname% open; close it or use Steam ^> Exit Game.
     goto done
 )
+del "%marker%"
 echo wemod-deck: closing %appname%
 C:\windows\system32\taskkill.exe /IM %appname% /F >NUL 2>&1
 C:\windows\system32\taskkill.exe /IM %appname% /F >NUL 2>&1
@@ -54,8 +59,8 @@ C:\windows\system32\taskkill.exe /IM %appname% /F >NUL 2>&1
 endlocal
 exit /b 0
 
-REM Seconds since midnight from %time% ("H:MM:SS.cc", hour may be space-padded).
-:seconds
-set "t=%time: =0%"
-for /F "tokens=1-3 delims=:.," %%a in ("%t%") do set /A "%1=(1%%a-100)*3600+(1%%b-100)*60+(1%%c-100)"
+REM Background timer: <this.bat> :wemod-deck-timer <marker> <pings>
+:timer
+ping -n %~3 localhost >NUL
+type nul > "%~2"
 exit /b 0

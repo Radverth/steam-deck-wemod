@@ -15,7 +15,11 @@ WEMOD_DECK_DIR=""
 STEAM_ROOT=""
 RUNTIME_APPID=""
 # shellcheck source=/dev/null
-source "$TOOL_DIR/tool.conf"
+source "$TOOL_DIR/tool.conf" || true
+if [[ -z "$GE_PROTON" ]]; then
+    echo "wemod-deck: $TOOL_DIR/tool.conf is missing or broken; re-run install.sh" >&2
+    exit 1
+fi
 
 # Make GE-Proton's folder available inside the runtime container.
 export STEAM_COMPAT_TOOL_PATHS="${GE_PROTON%/*}${STEAM_COMPAT_TOOL_PATHS:+:$STEAM_COMPAT_TOOL_PATHS}"
@@ -56,5 +60,17 @@ if [[ "$VERB" != "waitforexitandrun" ]] \
     exec "${RUNTIME_CMD[@]}" "$GE_PROTON" "$@"
 fi
 
+# wemod-deck creates $READY just before it hands over to the game (with or
+# without WeMod). If it dies before that (broken Python, missing module...),
+# start the game without WeMod instead of not at all.
 # -s: ignore the user's site-packages; wemod-deck needs only the stdlib.
-exec python3 -s "$LAUNCHER" launch -- "${RUNTIME_CMD[@]}" "$GE_PROTON" "$@"
+READY="$(mktemp -u "${XDG_RUNTIME_DIR:-/tmp}/wemod-deck-ready.XXXXXX")"
+WEMOD_DECK_READY_FILE="$READY" \
+    python3 -s "$LAUNCHER" launch -- "${RUNTIME_CMD[@]}" "$GE_PROTON" "$@"
+rc=$?
+if [[ -e "$READY" ]]; then
+    rm -f -- "$READY"
+    exit "$rc"
+fi
+echo "wemod-deck: failed before starting the game (exit $rc); starting it without WeMod" >&2
+exec "${RUNTIME_CMD[@]}" "$GE_PROTON" "$@"
