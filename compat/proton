@@ -53,8 +53,21 @@ if RT="$(find_runtime)"; then
 fi
 
 LAUNCHER="$WEMOD_DECK_DIR/wemod-deck"
+
+# A brand-new prefix normally runs plain so Proton can build it, unless
+# wemod-deck has saves waiting to be put back (after reset-prefix): then it
+# builds the prefix itself and restores them before the game starts.
+DATA_HOME="${XDG_DATA_HOME:-}"
+[[ "$DATA_HOME" == /* ]] || DATA_HOME="$HOME/.local/share"
+APPID="${SteamAppId:-${STEAM_COMPAT_APP_ID:-}}"
+FIRST_LAUNCH=0
+if [[ -n "${STEAM_COMPAT_DATA_PATH:-}" && ! -d "$STEAM_COMPAT_DATA_PATH/pfx/drive_c" ]] \
+   && [[ -z "$APPID" || ! -f "$DATA_HOME/wemod-deck/pending-restore/$APPID" ]]; then
+    FIRST_LAUNCH=1
+fi
+
 if [[ "$VERB" != "waitforexitandrun" ]] \
-   || [[ -n "${STEAM_COMPAT_DATA_PATH:-}" && ! -d "$STEAM_COMPAT_DATA_PATH/pfx/drive_c" ]] \
+   || [[ $FIRST_LAUNCH -eq 1 ]] \
    || [[ ! -f "$LAUNCHER" ]] \
    || ! command -v python3 >/dev/null 2>&1; then
     exec "${RUNTIME_CMD[@]}" "$GE_PROTON" "$@"

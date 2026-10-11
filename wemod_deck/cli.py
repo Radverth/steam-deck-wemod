@@ -35,9 +35,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="move a game's Proton prefix aside so Steam builds a fresh one",
     )
     reset.add_argument("appid")
+    reset.add_argument(
+        "--keep-old",
+        action="store_true",
+        help="move the old prefix aside instead of deleting it",
+    )
 
     setup = sub.add_parser("setup", help="download or update the app")
     setup.add_argument("--force", action="store_true", help="re-download")
+
+    bk = sub.add_parser("backups", help="list, create or restore save backups")
+    bsub = bk.add_subparsers(dest="backups_command", required=True)
+    bl = bsub.add_parser("list", help="list backups (newest first)")
+    bl.add_argument("appid", nargs="?")
+    bc = bsub.add_parser("create", help="back up a game's saves now")
+    bc.add_argument("appid")
+    br = bsub.add_parser(
+        "restore",
+        help="put a backup back (the current state is backed up first)",
+    )
+    br.add_argument("appid")
+    br.add_argument(
+        "name", nargs="?", help="backup name or its start (default: newest)"
+    )
+    br.add_argument(
+        "--dry-run", action="store_true", help="only show what would change"
+    )
 
     st = sub.add_parser("status", help="show the last launch result")
     st.add_argument("appid", nargs="?")
@@ -81,11 +104,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "reset-prefix":
         from . import prefix
 
-        return prefix.reset_prefix_cli(args.appid)
+        return prefix.reset_prefix_cli(
+            args.appid, keep_old=args.keep_old, keep=cfg.backups_keep
+        )
     if args.command == "setup":
         from . import app
 
         return app.setup_cli(cfg, force=args.force)
+    if args.command == "backups":
+        from . import backup
+
+        return backup.cli(args, cfg)
     if args.command == "status":
         data = status.read_status()
         if args.appid:

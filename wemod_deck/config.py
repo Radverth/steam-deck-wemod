@@ -24,7 +24,7 @@ except ModuleNotFoundError:  # pragma: no cover - exercised via parse_toml_subse
 
 APPS = ("wand", "wemod")
 LOG_LEVELS = ("debug", "info", "warning", "error")
-_GLOBAL_KEYS = {"app": str, "enabled": bool, "log_level": str}
+_GLOBAL_KEYS = {"app": str, "enabled": bool, "log_level": str, "backups_keep": int}
 _APP_KEYS = {"enabled": bool}
 
 
@@ -37,6 +37,7 @@ class Config:
     app: str = "wand"
     enabled: bool = True
     log_level: str = "info"
+    backups_keep: int = 5  # save backups kept per game
     apps: dict[str, dict] = field(default_factory=dict)
 
     def enabled_for(self, appid: str | None) -> bool:
@@ -147,7 +148,7 @@ def load(path: Path) -> tuple[Config, list[str]]:
             continue
         if key not in _GLOBAL_KEYS:
             warnings.append(f"unknown setting {key!r} ignored")
-        elif not isinstance(value, _GLOBAL_KEYS[key]):
+        elif type(value) is not _GLOBAL_KEYS[key]:  # bool is not an int here
             warnings.append(f"{key} has the wrong type; using the default")
         else:
             values[key] = value
@@ -157,6 +158,9 @@ def load(path: Path) -> tuple[Config, list[str]]:
     if values.get("log_level", "info") not in LOG_LEVELS:
         warnings.append(f"log_level must be one of {', '.join(LOG_LEVELS)}")
         values.pop("log_level")
+    if not 1 <= values.get("backups_keep", 5) <= 100:
+        warnings.append("backups_keep must be between 1 and 100; using 5")
+        values.pop("backups_keep")
 
     apps: dict[str, dict] = {}
     raw_apps = data.get("apps", {})

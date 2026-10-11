@@ -272,3 +272,134 @@ def test_every_url_has_an_offline_default():
     for var in ("WEMOD_DECK_GE_LATEST", "WEMOD_DECK_GE_DL", "WEMOD_DECK_REPO"):
         assert var in (REPO / "install.sh").read_text()
         assert var in OFFLINE_ENV
+
+
+def played_prefix(game):
+    """A prefix the player has used: saves of every kind."""
+    cd = game.compatdata
+    u = cd / "pfx/drive_c/users/steamuser"
+    files = {
+        u / "Saved Games/Game/slot1.sav": os.urandom(100_000),
+        u / "Documents/My Games/Spïel/セーブ.dat": b"unicode",
+        cd / "pfx/drive_c/ProgramData/Game/progress.dat": b"progress",
+        cd / "pfx/user.reg": b"WINE REGISTRY Version 2\n\n[Software\\\\Game] 1\n"
+        b'"k"=dword:1\n',
+    }
+    for p, data in files.items():
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(data)
+    (u / "Documents/saves-link").symlink_to("../Saved Games")
+    (cd / "pfx/.wemod_installer").write_text("")
+    return {p: p.read_bytes() for p in files}
+
+
+def cli(steam, *args):
+    env = {**OFFLINE_ENV, "HOME": str(steam.home), "PATH": os.environ["PATH"]}
+    return subprocess.run(
+        [sys.executable, str(steam.home / "wemod-deck/wemod-deck"), *args],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+def test_reset_then_launch_restores_saves_first(fake_steam, tool, remote):
+    """Scope acceptance: saves byte-identical after reset-prefix, back
+    before the game's first launch on the new prefix."""
+    s, game = fake_steam, fake_steam.game()
+    (game.compatdata / "pfx/drive_c").mkdir(parents=True)
+    saves = played_prefix(game)
+
+    r = cli(s, "reset-prefix", game.appid)
+    assert r.returncode == 0, r.stderr
+    assert not game.compatdata.exists()
+
+    log = launch(s, tool, game, remote=remote)
+    assert calls(log)[:2] == [
+        (
+            "_v2-entry-point",
+            ["--verb=run", "--", str(s.ge_proton), "run", "cmd.exe", "/c", "exit"],
+        ),
+        ("proton", ["run", "cmd.exe", "/c", "exit"]),
+    ]
+    assert log[-1]["argv"] == wemod_proton_argv(s)  # then the game, with Wand
+    for p, data in saves.items():
+        assert p.read_bytes() == data, p
+    link = game.compatdata / "pfx/drive_c/users/steamuser/Documents/saves-link"
+    assert os.readlink(link) == "../Saved Games"
+    assert "saves restored" in status(s)["message"]
+    assert not (
+        s.home / ".local/share/wemod-deck/pending-restore" / game.appid
+    ).exists()
+
+
+def test_failed_prefix_build_restores_on_next_launch(fake_steam, tool, remote):
+    s, game = fake_steam, fake_steam.game()
+    (game.compatdata / "pfx/drive_c").mkdir(parents=True)
+    saves = played_prefix(game)
+    assert cli(s, "reset-prefix", game.appid).returncode == 0
+
+    launch(s, tool, game, remote=remote, env={"FAKE_PROTON_NO_PREFIX": "1"})
+    assert status(s)["state"] == "error"
+    assert "next launch" in status(s)["message"]
+    pending = s.home / ".local/share/wemod-deck/pending-restore" / game.appid
+    assert pending.exists()
+
+    launch(s, tool, game, remote=remote)
+    for p, data in saves.items():
+        assert p.read_bytes() == data, p
+    assert not pending.exists()
+
+
+def test_backups_cli(fake_steam, tool):
+    s, game = fake_steam, fake_steam.game()
+    (game.compatdata / "pfx/drive_c").mkdir(parents=True)
+    played_prefix(game)
+    assert cli(s, "backups", "create", game.appid).returncode == 0
+    r = cli(s, "backups", "list", game.appid)
+    assert r.returncode == 0 and "manual" in r.stdout
+
+
+def test_backups_restore_cli_is_undoable(fake_steam, tool):
+    s, game = fake_steam, fake_steam.game()
+    (game.compatdata / "pfx/drive_c").mkdir(parents=True)
+    saves = played_prefix(game)
+    slot = next(p for p in saves if p.name == "slot1.sav")
+    assert cli(s, "backups", "create", game.appid).returncode == 0
+    slot.write_bytes(b"later progress")
+
+    r = cli(s, "backups", "restore", game.appid, "--dry-run")
+    assert "Would restore 1 entries" in r.stdout
+    assert slot.read_bytes() == b"later progress"
+
+    r = cli(s, "backups", "restore", game.appid)
+    assert r.returncode == 0, r.stderr
+    assert slot.read_bytes() == saves[slot]
+    undo = [line for line in r.stdout.splitlines() if "Current state saved" in line]
+    name = undo[0].split(": ")[1].split()[0]
+    assert cli(s, "backups", "restore", game.appid, name).returncode == 0
+    assert slot.read_bytes() == b"later progress"
+
+
+def test_backups_cli_errors(fake_steam, tool):
+    s = fake_steam
+    assert cli(s, "backups", "list").stdout.strip() == "No backups yet."
+    assert cli(s, "backups", "create", "999").returncode == 1
+    assert cli(s, "backups", "create", "../x").returncode == 1
+
+
+def test_backups_restore_cli_reports_conflicting_save(fake_steam, tool, tmp_path):
+    s, game = fake_steam, fake_steam.game()
+    (game.compatdata / "pfx/drive_c").mkdir(parents=True)
+    saves = played_prefix(game)
+    slot = next(p for p in saves if p.name == "slot1.sav")
+    assert cli(s, "backups", "create", game.appid).returncode == 0
+    slot.unlink()
+    external = tmp_path / "outside-save"
+    external.write_bytes(b"untouched")
+    slot.symlink_to(external)
+    result = cli(s, "backups", "restore", game.appid)
+    assert result.returncode == 1
+    assert "restore incomplete" in result.stderr
+    assert external.read_bytes() == b"untouched"

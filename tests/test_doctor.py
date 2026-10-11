@@ -59,3 +59,18 @@ def test_read_tool_conf(tmp_path):
     p = tmp_path / "tool.conf"
     p.write_text("# c\nGE_PROTON=/a\\ b/proton\nRUNTIME_APPID=''\nX\n")
     assert doctor.read_tool_conf(p) == {"GE_PROTON": "/a b/proton", "RUNTIME_APPID": ""}
+
+
+def test_doctor_reports_backups_and_pending(installed):
+    from wemod_deck import backup
+
+    s = installed
+    cd = s.game().compatdata
+    (cd / "pfx/drive_c/users/steamuser").mkdir(parents=True)
+    (cd / "pfx/drive_c/users/steamuser/save").write_text("x")
+    b = backup.create(cd, s.game().appid, "manual")
+    backup.set_pending(s.game().appid, b.archive, cd)
+    lv = levels(doctor.checks(Config()))
+    assert lv["Save backups"] == "OK"
+    assert lv["Pending restore"] == "WARN"
+    assert lv["Compression"] in ("OK", "WARN")

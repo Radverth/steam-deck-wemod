@@ -27,6 +27,7 @@ Rules in `wemod_deck/prefix.py`:
   next run because the zip's `version` file is written, as upstream does.
 - Only the most recently used zip is kept in `~/.cache/wemod-deck/prefixes/`.
 
-`reset-prefix` moves `compatdata/<appid>` to
-`<library>/steamapps/compatdata-wemod-deck-old/<appid>-<time>` (same
-filesystem, so it's a rename) instead of deleting it.
+`reset-prefix` moved `compatdata/<appid>` aside in Phase 1. Since Phase 2 it
+deletes it after a verified backup (`--keep-old` still moves it aside); see
+ADR 0006. Since Phase 2 the unpack also runs only after a verified save
+backup.

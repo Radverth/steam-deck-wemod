@@ -9,13 +9,15 @@ recorded in ``status.json`` and the game is started exactly as Steam asked
 from __future__ import annotations
 
 import os
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import app, login, net, paths, prefix, status
+from . import app, backup, login, net, paths, prefix, status
 from . import argv as argv_mod
 from .config import Config
 from .status import log
+from .steam import RUNTIME_ENTRY_POINT
 
 LAUNCH_VERB = "waitforexitandrun"
 
@@ -56,13 +58,24 @@ def decide(
     time; raises on unexpected errors (the caller falls back to plain)."""
     if cmd.verb != LAUNCH_VERB:
         return _plain(cmd, "plain", f"verb {cmd.verb} goes straight to Proton")
-    if not cfg.enabled_for(appid):
-        return _plain(cmd, "plain", "disabled for this game in config.toml")
 
     compat = env.get("STEAM_COMPAT_DATA_PATH")
     if not compat:
         return _plain(cmd, "error", "STEAM_COMPAT_DATA_PATH is not set")
     compatdata = Path(compat)
+
+    notes = []
+    pend = backup.pending(appid)
+    if pend:  # saves waiting after reset-prefix: before anything else
+        restored = _restore_pending(cmd, appid, compatdata, pend, env)
+        if isinstance(restored, Decision):
+            return restored
+        notes.append(restored)
+
+    if not cfg.enabled_for(appid):
+        return _plain(
+            cmd, "plain", _join(notes, "disabled for this game in config.toml")
+        )
     if not (compatdata / "pfx" / "drive_c").is_dir():
         return _plain(cmd, "plain", "first launch: Proton is creating the prefix")
 
@@ -70,7 +83,11 @@ def decide(
         if not app.is_installed(cfg.app):
             log.info("%s is not installed yet, downloading it", cfg.app)
             app.install(cfg.app)
-        prefix.ensure(compatdata, cmd.proton)
+        prefix.ensure(
+            compatdata, cmd.proton, appid or compatdata.name, keep=cfg.backups_keep
+        )
+    except backup.BackupError as e:
+        return _plain(cmd, "error", f"no save backup possible, prefix left alone: {e}")
     except (app.AppError, prefix.PrefixError, net.DownloadError, OSError) as e:
         return _plain(cmd, "error", f"{type(e).__name__}: {e}")
 
@@ -90,7 +107,66 @@ def decide(
         *cmd.args,
     ]
     exe = "Z:" + str(app.exe_path(cfg.app)).replace(os.sep, "\\")
-    return Decision(command, "ok", f"started with {cfg.app}", {"WEMOD_DECK_EXE": exe})
+    message = _join(notes, f"started with {cfg.app}")
+    return Decision(command, "ok", message, {"WEMOD_DECK_EXE": exe})
+
+
+def _join(notes: list[str], message: str) -> str:
+    return "; ".join([*notes, message])
+
+
+def build_prefix(cmd: argv_mod.LaunchCommand, env: dict[str, str]) -> bool:
+    """Have Proton create the prefix without starting the game: the runtime
+    part of the command with ``--verb=run``, then ``proton run cmd.exe /c
+    exit``. Returns True if ``pfx/drive_c`` exists afterwards."""
+    runtime: list[str] = []
+    for i, arg in enumerate(cmd.prefix):
+        if os.path.basename(arg) == RUNTIME_ENTRY_POINT:
+            runtime = [
+                "--verb=run" if a.startswith("--verb=") else a for a in cmd.prefix[i:]
+            ]
+            break
+    command = [*runtime, cmd.proton, "run", "cmd.exe", "/c", "exit"]
+    log.info("building the prefix first: %s", command)
+    try:
+        r = subprocess.run(
+            command, env=env, capture_output=True, text=True, timeout=600
+        )
+        if r.returncode:
+            log.warning("prefix build exited %s: %s", r.returncode, r.stderr[-2000:])
+    except (OSError, subprocess.SubprocessError) as e:
+        log.warning("prefix build failed: %s", e)
+    compat = Path(env["STEAM_COMPAT_DATA_PATH"])
+    return (compat / "pfx" / "drive_c").is_dir()
+
+
+def _restore_pending(cmd, appid, compatdata: Path, pend: dict, env) -> str | Decision:
+    """Put saves back after reset-prefix. Returns a note for the status, or
+    a plain-launch Decision if it can't be done yet (it is retried on the
+    next launch; the marker stays)."""
+    archive = Path(pend["archive"])
+    if not (compatdata / "pfx" / "drive_c").is_dir() and not build_prefix(cmd, env):
+        return _plain(
+            cmd,
+            "error",
+            "could not build the prefix before restoring your saves; "
+            "starting without them, they are restored on the next launch",
+        )
+    try:
+        counts = backup.restore(archive, compatdata, mode="full")
+    except backup.BackupError as e:
+        return _plain(
+            cmd, "error", f"saves not restored yet ({e}); retried next launch"
+        )
+    if counts["refused"] or counts["kept"]:
+        return _plain(
+            cmd,
+            "error",
+            "saves not fully restored: conflicting or unsafe paths; "
+            "pending backup retained for the next launch",
+        )
+    backup.clear_pending(appid)
+    return f"saves restored from {archive.name} ({counts['restored']} entries)"
 
 
 def _handover(execute, command: list[str], extra_env: dict[str, str]) -> None:

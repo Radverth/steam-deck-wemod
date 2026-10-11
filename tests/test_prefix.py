@@ -6,7 +6,7 @@ import os
 import pytest
 
 from fakes.fake_prefix import build_fake_prefix_zip
-from wemod_deck import net, paths, prefix
+from wemod_deck import backup, net, paths, prefix
 from wemod_deck.prefix import PrefixError
 
 RELEASES = [
@@ -169,23 +169,66 @@ def test_ensure_downloads_closest_and_keeps_one_zip(
     stale.parent.mkdir(parents=True)
     stale.write_bytes(b"old")
 
-    assert prefix.ensure(cd, str(fake_steam.ge_proton)) is True
+    assert prefix.ensure(cd, str(fake_steam.ge_proton), "1234560") is True
     assert prefix.has_wemod(cd)
+    (snap,) = backup.list_backups("1234560")
+    assert snap.manifest["reason"] == "unpack"
     assert [p.name for p in stale.parent.iterdir()] == ["GE-Proton10.1.zip"]
-    assert prefix.ensure(cd, str(fake_steam.ge_proton)) is False  # already done
+    assert prefix.ensure(cd, str(fake_steam.ge_proton), "1234560") is False
 
 
-def test_reset_prefix_moves_aside(fake_steam):
+def test_reset_prefix_backs_up_then_deletes(fake_steam):
+    cd = make_prefix(fake_steam)
+    appid = fake_steam.game().appid
+    saved = snapshot(cd / "pfx/drive_c/users")
+    res = prefix.reset_prefix(fake_steam.steam_root, appid, now=0)
+    assert not cd.exists()
+    assert res["moved_to"] is None
+    pend = backup.pending(appid)
+    assert pend["archive"] == str(res["backup"].archive)
+    cd.mkdir(parents=True)
+    backup.restore(res["backup"].archive, cd, mode="full")
+    assert snapshot(cd / "pfx/drive_c/users") == saved
+
+
+def test_reset_prefix_keep_old(fake_steam):
     cd = make_prefix(fake_steam)
     saved = snapshot(cd)
-    moved = prefix.reset_prefix(fake_steam.steam_root, fake_steam.game().appid, now=0)
+    res = prefix.reset_prefix(
+        fake_steam.steam_root, fake_steam.game().appid, keep_old=True, now=0
+    )
     assert not cd.exists()
-    ((src, dest),) = moved
-    assert src == cd
-    assert dest.parent.name == "compatdata-wemod-deck-old"
-    assert snapshot(dest) == saved
+    assert res["moved_to"].parent.name == "compatdata-wemod-deck-old"
+    assert snapshot(res["moved_to"]) == saved
+
+
+def test_reset_prefix_refusals(fake_steam, monkeypatch):
+    s = fake_steam
     with pytest.raises(PrefixError):
-        prefix.reset_prefix(fake_steam.steam_root, "../1")
+        prefix.reset_prefix(s.steam_root, "../1")
+    with pytest.raises(PrefixError, match="no prefix"):
+        prefix.reset_prefix(s.steam_root, s.game().appid)
+    cd = make_prefix(s)
+    before = snapshot(cd)
+    monkeypatch.setattr(backup, "prefix_in_use", lambda c: [4242])
+    with pytest.raises(PrefixError, match="still running"):
+        prefix.reset_prefix(s.steam_root, s.game().appid)
+    monkeypatch.setattr(backup, "prefix_in_use", lambda c: [])
+    monkeypatch.setattr(backup, "SPACE_MARGIN", 1 << 62)
+    with pytest.raises(backup.NotEnoughSpace):
+        prefix.reset_prefix(s.steam_root, s.game().appid)
+    assert snapshot(cd) == before
+    assert backup.pending(s.game().appid) is None
+
+
+def test_reset_prefix_cli(fake_steam, capsys):
+    from wemod_deck import cli
+
+    make_prefix(fake_steam)
+    assert cli.main(["reset-prefix", fake_steam.game().appid]) == 0
+    out = capsys.readouterr().out
+    assert "Saves backed up" in out and "deleted" in out
+    assert cli.main(["reset-prefix", fake_steam.game().appid]) == 1
 
 
 OLD_USER_REG = """WINE REGISTRY Version 2
@@ -251,3 +294,14 @@ def test_unpack_normalises_names_before_checks(fake_steam, tmp_path, sneaky):
         build_fake_prefix_zip(tmp_path / "p.zip", extra={sneaky: b"EVIL"}), cd
     )
     assert save.read_bytes() == before
+
+
+def test_reset_refuses_to_replace_pending_restore(fake_steam):
+    game = fake_steam.game()
+    game.compatdata.mkdir(parents=True, exist_ok=True)
+    original = backup.create(game.compatdata, game.appid, "reset")
+    backup.set_pending(game.appid, original.archive, game.compatdata)
+    with pytest.raises(prefix.PrefixError, match="pending"):
+        prefix.reset_prefix(fake_steam.steam_root, game.appid)
+    assert game.compatdata.exists()
+    assert backup.pending(game.appid)["archive"] == str(original.archive)

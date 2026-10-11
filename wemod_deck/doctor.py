@@ -7,7 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import app, config, paths, status, steam
+from . import app, backup, config, paths, status, steam
 from .config import Config
 
 TOOL_NAME = "WeMod-GE"
@@ -73,6 +73,18 @@ def checks(cfg: Config) -> list[tuple[str, str, str]]:
         )
     else:
         add(OK, "Last launch", "none yet")
+
+    backups = backup.list_backups()
+    on_disk = sum(b.archive.stat().st_size for b in backups if b.archive.exists())
+    add(OK, "Save backups", f"{len(backups)}, {on_disk / 2**20:.0f} MB on disk")
+    method = backup.compression()
+    add(
+        OK if method != "gzip" else WARN,
+        "Compression",
+        method if method != "gzip" else "zstd not found, using gzip (bigger backups)",
+    )
+    for appid in backup.all_pending():
+        add(WARN, "Pending restore", f"AppID {appid}: saves go back on its next launch")
 
     free = shutil.disk_usage(paths.home()).free
     add(OK if free > 2 * 2**30 else WARN, "Free space", f"{free // 2**30} GB in home")

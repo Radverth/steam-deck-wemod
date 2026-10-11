@@ -28,7 +28,7 @@ import time
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from . import net, paths, steam
+from . import backup, net, paths, steam
 from .status import log
 
 MARKER = "pfx/.wemod_installer"
@@ -286,9 +286,12 @@ def _fix_dosdevices(compatdata: Path) -> None:
 # ------------------------------------------------------------------ install --
 
 
-def ensure(compatdata: Path, proton: str) -> bool:
+def ensure(
+    compatdata: Path, proton: str, appid: str, *, keep: int = backup.DEFAULT_KEEP
+) -> bool:
     """Make sure the prefix has WeMod's prerequisites. Returns True if a
-    prebuilt prefix was unpacked. Raises PrefixError/DownloadError."""
+    prebuilt prefix was unpacked. The unpack only runs after a verified
+    save backup. Raises PrefixError/DownloadError/BackupError."""
     if has_wemod(compatdata):
         return False
     want = steam.prefix_proton_version(compatdata) or steam.parse_proton_version(
@@ -311,7 +314,8 @@ def ensure(compatdata: Path, proton: str) -> bool:
             *want,
         )
         net.download(asset["browser_download_url"], zip_path, timeout=60)
-    counts = unpack(zip_path, compatdata)
+    with backup.protected(compatdata, appid, "unpack", keep=keep):
+        counts = unpack(zip_path, compatdata)
     log.info("unpacked %s into %s: %s", zip_path.name, compatdata, counts)
     # Keep only the zip just used: one ~0.9 GB file instead of one per version.
     for other in zips.glob("*.zip"):
@@ -323,39 +327,76 @@ def ensure(compatdata: Path, proton: str) -> bool:
 # -------------------------------------------------------------- reset (CLI) --
 
 
-def reset_prefix(steam_root: Path, appid: str, *, now: float | None = None) -> list:
-    """Move ``compatdata/<appid>`` aside (same library, so a cheap rename)
-    so Steam builds a fresh prefix next launch. Nothing is deleted."""
+def reset_prefix(
+    steam_root: Path,
+    appid: str,
+    *,
+    keep_old: bool = False,
+    keep: int = backup.DEFAULT_KEEP,
+    now: float | None = None,
+) -> dict:
+    """Throw away a game's prefix so Steam builds a fresh one, saves kept.
+
+    1. refuse if the game is running;
+    2. verified save backup (raises BackupError: nothing is touched);
+    3. record a pending restore (written *before* deleting, so even a
+       half-finished delete gets its saves back on the next launch);
+    4. delete the prefix, or move it aside with ``keep_old``.
+    """
     if not appid.isdigit():
         raise PrefixError("AppID must be a number")
-    stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
-    moved = []
-    for cd in steam.find_compatdata(steam_root, appid):
-        dest = cd.parent.parent / "compatdata-wemod-deck-old" / f"{appid}-{stamp}"
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        cd.rename(dest)
-        moved.append((cd, dest))
-    return moved
+    if backup.pending(appid):
+        raise PrefixError(
+            "save restore is pending; restore your saves before resetting again"
+        )
+    found = steam.find_compatdata(steam_root, appid)
+    if not found:
+        raise PrefixError(f"no prefix found for AppID {appid}")
+    if len(found) > 1:
+        raise PrefixError(
+            f"AppID {appid} has a prefix in several libraries: "
+            + ", ".join(map(str, found))
+            + "; remove the stale one by hand first"
+        )
+    cd = found[0]
+    pids = backup.prefix_in_use(cd)
+    if pids:
+        raise PrefixError(
+            f"the game is still running (process {', '.join(map(str, pids))}); "
+            "quit it first"
+        )
+    snap = backup.create(cd, appid, "reset", keep=keep, now=now)
+    backup.set_pending(appid, snap.archive, cd)
+    moved_to = None
+    if keep_old:
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
+        moved_to = cd.parent.parent / "compatdata-wemod-deck-old" / f"{appid}-{stamp}"
+        moved_to.parent.mkdir(parents=True, exist_ok=True)
+        cd.rename(moved_to)
+    else:
+        shutil.rmtree(cd)
+    log.info("reset prefix %s (backup %s, kept at %s)", cd, snap.archive, moved_to)
+    return {"compatdata": cd, "backup": snap, "moved_to": moved_to}
 
 
-def reset_prefix_cli(appid: str) -> int:
+def reset_prefix_cli(appid: str, *, keep_old: bool = False, keep: int) -> int:
     root = steam.find_steam_root()
     if root is None:
         log.error("Steam not found")
         return 1
     try:
-        moved = reset_prefix(root, appid)
-    except (PrefixError, OSError) as e:
+        res = reset_prefix(root, appid, keep_old=keep_old, keep=keep)
+    except (PrefixError, backup.BackupError, OSError) as e:
         log.error("%s", e)
         return 1
-    if not moved:
-        print(f"No prefix found for AppID {appid}.")
-        return 1
-    for src, dest in moved:
-        print(f"Moved {src}\n   to {dest}")
-        print(f"To undo: mv '{dest}' '{src}'")
+    snap = res["backup"]
+    print(f"Saves backed up: {snap.archive} ({len(snap.manifest['entries'])} entries)")
+    if res["moved_to"]:
+        print(f"Old prefix moved to {res['moved_to']}")
+    else:
+        print(f"Old prefix deleted: {res['compatdata']}")
     print(
-        "Steam creates a fresh prefix on the next launch "
-        "(that first launch runs without WeMod)."
+        "Next launch: the prefix is rebuilt and your saves are put back "
+        "before the game starts."
     )
     return 0
