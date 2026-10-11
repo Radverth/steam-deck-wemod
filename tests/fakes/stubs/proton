@@ -5,10 +5,11 @@
 # the game. Exit code comes from $FAKE_PROTON_EXIT (default 0).
 set -euo pipefail
 
-python3 -c '
+"${FAKE_PYTHON:-python3}" -c '
 import json, os, sys
 keys = ["STEAM_COMPAT_DATA_PATH", "STEAM_COMPAT_TOOL_PATHS", "SteamAppId",
-        "STEAM_COMPAT_APP_ID", "STEAM_COMPAT_CLIENT_INSTALL_PATH", "WINEPREFIX"]
+        "STEAM_COMPAT_APP_ID", "STEAM_COMPAT_CLIENT_INSTALL_PATH", "WINEPREFIX",
+        "WEMOD_DECK_EXE"]
 print(json.dumps({"stub": "proton", "path": sys.argv[1], "argv": sys.argv[2:],
                   "cwd": os.getcwd(),
                   "env": {k: os.environ[k] for k in keys if k in os.environ}}))

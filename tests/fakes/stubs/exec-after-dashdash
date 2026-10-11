@@ -4,7 +4,7 @@
 # runs everything after the first "--" (like the real tools do).
 set -euo pipefail
 
-python3 -c '
+"${FAKE_PYTHON:-python3}" -c '
 import json, os, sys
 print(json.dumps({"stub": os.path.basename(sys.argv[1]), "path": sys.argv[1],
                   "argv": sys.argv[2:], "cwd": os.getcwd()}))

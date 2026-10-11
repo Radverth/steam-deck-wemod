@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# "WeMod + GE-Proton" Steam compatibility tool (installed by install.sh).
+#
+# Runs on the host: our toolmanifest.vdf has no require_tool_appid, so Steam
+# doesn't put this script inside the Steam Linux Runtime container. We start
+# the runtime ourselves, around GE-Proton only:
+#   <runtime>/_v2-entry-point --verb=V -- <GE>/proton V <game.exe> ...
+# Only game launches (waitforexitandrun) go through wemod-deck. Everything
+# else, and any launch we can't handle, goes straight to GE-Proton.
+set -uo pipefail
+
+TOOL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GE_PROTON=""
+WEMOD_DECK_DIR=""
+STEAM_ROOT=""
+RUNTIME_APPID=""
+# shellcheck source=/dev/null
+source "$TOOL_DIR/tool.conf"
+
+# Make GE-Proton's folder available inside the runtime container.
+export STEAM_COMPAT_TOOL_PATHS="${GE_PROTON%/*}${STEAM_COMPAT_TOOL_PATHS:+:$STEAM_COMPAT_TOOL_PATHS}"
+
+# _v2-entry-point of the runtime GE-Proton asks for, in any library
+# (libraryfolders.vdf -> appmanifest_<id>.acf -> installdir), SD card included.
+find_runtime() {
+    [[ -n "$RUNTIME_APPID" ]] || return 1
+    local lib acf dir ep
+    while IFS= read -r lib; do
+        acf="$lib/steamapps/appmanifest_$RUNTIME_APPID.acf"
+        [[ -f "$acf" ]] || continue
+        dir="$(sed -n 's/.*"installdir"[[:space:]]*"\([^"]*\)".*/\1/p' "$acf" | head -n1)"
+        ep="$lib/steamapps/common/$dir/_v2-entry-point"
+        if [[ -x "$ep" ]]; then
+            printf '%s\n' "$ep"
+            return 0
+        fi
+    done < <(
+        printf '%s\n' "$STEAM_ROOT"
+        sed -n 's/.*"path"[[:space:]]*"\([^"]*\)".*/\1/p' \
+            "$STEAM_ROOT/steamapps/libraryfolders.vdf" 2>/dev/null
+    )
+    return 1
+}
+
+VERB="${1:-}"
+RUNTIME_CMD=()
+if RT="$(find_runtime)"; then
+    RUNTIME_CMD=("$RT" "--verb=$VERB" --)
+fi
+
+LAUNCHER="$WEMOD_DECK_DIR/wemod-deck"
+if [[ "$VERB" != "waitforexitandrun" ]] \
+   || [[ -n "${STEAM_COMPAT_DATA_PATH:-}" && ! -d "$STEAM_COMPAT_DATA_PATH/pfx/drive_c" ]] \
+   || [[ ! -f "$LAUNCHER" ]] \
+   || ! command -v python3 >/dev/null 2>&1; then
+    exec "${RUNTIME_CMD[@]}" "$GE_PROTON" "$@"
+fi
+
+# -s: ignore the user's site-packages; wemod-deck needs only the stdlib.
+exec python3 -s "$LAUNCHER" launch -- "${RUNTIME_CMD[@]}" "$GE_PROTON" "$@"

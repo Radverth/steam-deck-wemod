@@ -24,7 +24,7 @@ jobs:
           ruff check .
           ruff format --check .
       - name: shellcheck
-        run: shellcheck tests/fakes/stubs/*
+        run: shellcheck install.sh compat/proton tests/fakes/stubs/*
 
   test:
     runs-on: ubuntu-latest
