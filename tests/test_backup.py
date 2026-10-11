@@ -289,3 +289,11 @@ def test_pending_marker(cd):
     backup.clear_pending("1")
     assert backup.all_pending() == []
     assert paths.data_dir().is_dir()
+
+
+def test_restoring_the_oldest_backup_is_not_pruned_by_pre_restore(cd):
+    t0 = time.time()
+    made = [backup.create(cd, "1", "manual", keep=2, now=t0 + i) for i in range(2)]
+    oldest = made[0]
+    backup.create(cd, "1", "pre-restore", keep=2, now=t0 + 5, protect=(oldest.archive,))
+    assert oldest.archive.exists()

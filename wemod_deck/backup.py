@@ -248,8 +248,10 @@ def create(
     *,
     keep: int = DEFAULT_KEEP,
     now: float | None = None,
+    protect: tuple[Path, ...] = (),
 ) -> Backup:
-    """Snapshot the saves of ``compatdata``, verify it, prune old backups.
+    """Snapshot the saves of ``compatdata``, verify it, prune old backups
+    (never the ones in ``protect``).
     Raises :class:`BackupError` (nothing is left behind) if any step fails."""
     entries = collect(compatdata)
     total = sum(e.get("size", 0) for e in entries)
@@ -317,7 +319,7 @@ def create(
         total // 2**20,
         method,
     )
-    prune(appid, keep)
+    prune(appid, keep, protect=protect)
     return backup
 
 
@@ -422,8 +424,10 @@ def restore(
                     counts["kept"] += 1
                     continue
                 if name == REGISTRY and exists:
-                    _restore_registry(tar, m, target, mode, dry_run, merge_registry)
-                    counts["restored"] += 1
+                    changed = _restore_registry(
+                        tar, m, target, mode, dry_run, merge_registry
+                    )
+                    counts["restored" if changed else "unchanged"] += 1
                     continue
                 if exists and mode == "missing":
                     counts["kept"] += 1
@@ -455,16 +459,19 @@ def _write_member(tar, m, target: Path, sha: str | None) -> None:
     os.replace(part, target)
 
 
-def _restore_registry(tar, m, target: Path, mode: str, dry_run: bool, merge) -> None:
+def _restore_registry(tar, m, target: Path, mode: str, dry_run: bool, merge) -> bool:
     saved = tar.extractfile(m).read().decode("utf-8", "surrogateescape")
     current = target.read_text("utf-8", "surrogateescape")
     # missing: keep current values, add what only the backup has.
     # full: backup values win, keys only present now are kept.
     merged = merge(current, saved) if mode == "missing" else merge(saved, current)
-    if merged != current and not dry_run:
+    if merged == current:
+        return False
+    if not dry_run:
         part = target.with_name(target.name + ".wemod-deck-restore")
         part.write_text(merged, "utf-8", "surrogateescape")
         os.replace(part, target)
+    return True
 
 
 # ----------------------------------------------------------- list / retain --
@@ -510,10 +517,11 @@ def find(appid: str, name: str | None = None) -> Backup:
     return backups[0]
 
 
-def prune(appid: str, keep: int) -> list[Path]:
+def prune(appid: str, keep: int, protect: tuple[Path, ...] = ()) -> list[Path]:
     """Delete all but the newest ``keep`` backups, never the one a pending
-    restore points to."""
+    restore points to or any in ``protect``."""
     protected = {p.get("archive") for p in [pending(appid)] if p}
+    protected |= {str(p) for p in protect}
     removed = []
     for b in list_backups(appid)[max(keep, 1) :]:
         if str(b.archive) in protected:
@@ -582,6 +590,78 @@ def protected(
             counts = restore(backup.archive, compatdata, mode="missing")
             if counts["restored"]:
                 log.warning("put back %d entries after %s", counts["restored"], reason)
+
+
+# --------------------------------------------------------------------- CLI --
+
+
+def _mb(n: int) -> str:
+    return f"{n / 2**20:.1f} MB"
+
+
+def _compatdata(appid: str) -> Path | None:
+    from . import steam
+
+    root = steam.find_steam_root()
+    found = steam.find_compatdata(root, appid) if root else []
+    return found[0] if len(found) == 1 else None
+
+
+def cli(args, cfg) -> int:
+    if args.backups_command == "list":
+        backups = list_backups(args.appid)
+        if not backups:
+            print("No backups yet.")
+        for b in backups:
+            print(
+                f"{b.appid:>10}  {b.name:<28}  {len(b.manifest['entries']):>6} entries"
+                f"  {_mb(b.total_size):>10}  ({_mb(b.archive.stat().st_size)} on disk)"
+            )
+        for appid in all_pending():
+            if not args.appid or args.appid == appid:
+                print(f"Pending restore for AppID {appid}: runs on its next launch.")
+        return 0
+
+    if not args.appid.isdigit():
+        log.error("AppID must be a number")
+        return 1
+    cd = _compatdata(args.appid)
+    if cd is None:
+        log.error(
+            "no single prefix found for AppID %s (launch the game once first)",
+            args.appid,
+        )
+        return 1
+    try:
+        if args.backups_command == "create":
+            b = create(cd, args.appid, "manual", keep=cfg.backups_keep)
+            print(f"Backed up {len(b.manifest['entries'])} entries to {b.archive}")
+            return 0
+        # restore
+        target = find(args.appid, args.name)
+        pids = prefix_in_use(cd)
+        if pids:
+            log.error("the game is still running (process %s); quit it first", pids[0])
+            return 1
+        if not args.dry_run:
+            undo = create(
+                cd,
+                args.appid,
+                "pre-restore",
+                keep=cfg.backups_keep,
+                protect=(target.archive,),
+            )
+            print(f"Current state saved first: {undo.name} (restore it to undo)")
+        counts = restore(target.archive, cd, mode="full", dry_run=args.dry_run)
+    except BackupError as e:
+        log.error("%s", e)
+        return 1
+    verb = "Would restore" if args.dry_run else "Restored"
+    print(
+        f"{verb} {counts['restored']} entries from {target.name} "
+        f"({counts['unchanged']} unchanged, {counts['kept']} left as they are)."
+    )
+    return 0
 
 
 # ------------------------------------------------------------ running game --

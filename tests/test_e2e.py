@@ -350,3 +350,40 @@ def test_failed_prefix_build_restores_on_next_launch(fake_steam, tool, remote):
     for p, data in saves.items():
         assert p.read_bytes() == data, p
     assert not pending.exists()
+
+
+def test_backups_cli(fake_steam, tool):
+    s, game = fake_steam, fake_steam.game()
+    (game.compatdata / "pfx/drive_c").mkdir(parents=True)
+    played_prefix(game)
+    assert cli(s, "backups", "create", game.appid).returncode == 0
+    r = cli(s, "backups", "list", game.appid)
+    assert r.returncode == 0 and "manual" in r.stdout
+
+
+def test_backups_restore_cli_is_undoable(fake_steam, tool):
+    s, game = fake_steam, fake_steam.game()
+    (game.compatdata / "pfx/drive_c").mkdir(parents=True)
+    saves = played_prefix(game)
+    slot = next(p for p in saves if p.name == "slot1.sav")
+    assert cli(s, "backups", "create", game.appid).returncode == 0
+    slot.write_bytes(b"later progress")
+
+    r = cli(s, "backups", "restore", game.appid, "--dry-run")
+    assert "Would restore 1 entries" in r.stdout
+    assert slot.read_bytes() == b"later progress"
+
+    r = cli(s, "backups", "restore", game.appid)
+    assert r.returncode == 0, r.stderr
+    assert slot.read_bytes() == saves[slot]
+    undo = [line for line in r.stdout.splitlines() if "Current state saved" in line]
+    name = undo[0].split(": ")[1].split()[0]
+    assert cli(s, "backups", "restore", game.appid, name).returncode == 0
+    assert slot.read_bytes() == b"later progress"
+
+
+def test_backups_cli_errors(fake_steam, tool):
+    s = fake_steam
+    assert cli(s, "backups", "list").stdout.strip() == "No backups yet."
+    assert cli(s, "backups", "create", "999").returncode == 1
+    assert cli(s, "backups", "create", "../x").returncode == 1
